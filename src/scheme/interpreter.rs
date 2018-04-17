@@ -21,6 +21,7 @@ impl<'a> Interpreter<'a> {
         self.context.define_procedure("-", primitives::subtract);
         self.context.define_procedure("*", primitives::mul);
         self.context.define_synatx("define", primitives::define);
+        self.context.define_synatx("quote", primitives::quote);
     }
 
     pub fn run_repl(&mut self) {

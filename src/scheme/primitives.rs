@@ -93,3 +93,12 @@ pub fn define(context: &mut Context, exprs: Vec<Sexp>) -> LispObject {
         _ => Err(LispError::BadSyntax("define".to_owned(), String::new())),
     }
 }
+
+pub fn quote(_context: &mut Context, exprs: Vec<Sexp>) -> LispObject {
+    let arity = exprs.len();
+    if arity != 1 {
+        return Err(LispError::BadSyntax("define".to_owned(), String::new()));
+    }
+
+    Ok(exprs[0].clone())
+}
