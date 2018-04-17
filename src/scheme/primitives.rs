@@ -23,7 +23,7 @@ pub fn plus(_context: &mut Context, args: Vec<Sexp>) -> LispObject {
 pub fn subtract(_context: &mut Context, args: Vec<Sexp>) -> LispObject {
     let arity = args.len();
     if arity == 0 {
-        return Err(LispError::ArityMismatch("-".to_owned(), 1, 0));
+        return Err(LispError::ArityMismatch("-".to_owned(), 1, arity));
     }
 
     let mut vals = Vec::with_capacity(arity);

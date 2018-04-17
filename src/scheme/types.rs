@@ -202,7 +202,7 @@ pub enum LispError {
     BadSyntax(String, String),
     Undefined(String),
     Application,
-    ArityMismatch(String, i32, i32),
+    ArityMismatch(String, usize, usize),
     TypeMismatch(String, String),
 }
 
