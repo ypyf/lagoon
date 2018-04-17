@@ -65,20 +65,26 @@ impl Context {
     }
 
     pub fn eval<'s>(&'s mut self, expr: &'s Sexp) -> LispObject {
+        use self::LispError::*;
+        use self::Sexp::*;
+
         match expr {
-            Sexp::Symbol(sym) => match self.lookup(sym.as_str()) {
+            Symbol(sym) => match self.lookup(sym.as_str()) {
                 Some(val) => Ok(val.clone()),
-                None => Err(LispError::Undefined(sym.clone())),
+                None => Err(Undefined(sym.clone())),
             },
-            Sexp::List(v, _) => {
+            List(v, _) => {
+                if v.is_empty() {
+                    return Ok(Nil); // follows MIT Scheme
+                }
                 let first = self.eval(&v[0])?;
                 match first {
-                    Sexp::Function {
+                    Function {
                         name: _,
                         special,
                         func,
                     } => self.apply(special, func, &v[1..]),
-                    _ => Err(LispError::Application),
+                    _ => Err(Application),
                 }
             }
             _ => Ok(expr.clone()), // 其它表达式求值到其本身
