@@ -1,0 +1,7 @@
+[package]
+name = "lagoon"
+version = "0.1.0"
+authors = ["ypyf <t34@qq.com>"]
+
+[dependencies]
+regex = "0.2"

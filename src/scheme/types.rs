@@ -1,0 +1,301 @@
+use std::collections::HashMap;
+use std::collections::LinkedList;
+use std::error::Error;
+use std::fmt;
+use std::str;
+
+pub type LispObject = Result<Sexp, LispError>;
+
+#[derive(Clone, PartialEq)]
+pub struct Env(LinkedList<HashMap<String, Sexp>>);
+
+impl<'a> Env {
+    pub fn new() -> Self {
+        Env {
+            0: LinkedList::new(),
+        }
+    }
+
+    pub fn enter(&mut self) {
+        self.0.push_back(HashMap::new())
+    }
+
+    pub fn top(&self) -> Option<&HashMap<String, Sexp>> {
+        self.0.front()
+    }
+
+    pub fn current(&self) -> Option<&HashMap<String, Sexp>> {
+        self.0.back()
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub struct Context {
+    env: Env,
+}
+
+impl Context {
+    pub fn new() -> Self {
+        let mut env = Env::new();
+        env.enter();
+        Context { env: env }
+    }
+
+    pub fn define_variable<'a>(&mut self, name: &'a str, sexp: Sexp) {
+        let current = self.env.0.back_mut().unwrap();
+        current.insert(name.to_owned(), sexp);
+    }
+
+    pub fn define_synatx<'a>(&mut self, name: &'a str, func: Function) {
+        let current = self.env.0.back_mut().unwrap();
+        current.insert(
+            name.to_owned(),
+            Sexp::Function {
+                name: name.to_owned(),
+                special: true,
+                func: func,
+            },
+        );
+    }
+
+    pub fn define_procedure<'a>(&mut self, name: &'a str, func: Function) {
+        let current = self.env.0.back_mut().unwrap();
+        current.insert(
+            name.to_owned(),
+            Sexp::Function {
+                name: name.to_owned(),
+                special: false,
+                func: func,
+            },
+        );
+    }
+
+    pub fn define_number(&mut self, name: &str, num: i64) {
+        self.define_variable(name, Sexp::Number(num))
+    }
+
+    pub fn define_string(&mut self, name: &str, string: &str) {
+        self.define_variable(name, Sexp::Str(string.to_owned()))
+    }
+
+    pub fn lookup<'a>(&self, name: &'a str) -> Option<&Sexp> {
+        for current in &self.env.0 {
+            match current.get(name) {
+                Some(val) => return Some(val),
+                None => continue,
+            }
+        }
+        None
+    }
+
+    pub fn eval<'s>(&'s mut self, expr: &'s Sexp) -> LispObject {
+        match expr {
+            Sexp::Symbol(sym) => match self.lookup(sym.as_str()) {
+                Some(val) => Ok(val.clone()),
+                None => Err(LispError::Undefined(sym.clone())),
+            },
+            Sexp::List(v, _) => {
+                let first = self.eval(&v[0])?;
+                match first {
+                    Sexp::Function {
+                        name: _,
+                        special,
+                        func,
+                    } => self.apply(special, func, &v[1..]),
+                    _ => Err(LispError::Application),
+                }
+            }
+            _ => Ok(expr.clone()), // 其它表达式求值到其本身
+        }
+    }
+
+    fn apply(&mut self, special: bool, func: Function, exprs: &[Sexp]) -> LispObject {
+        if special {
+            func(self, exprs.to_vec())
+        } else {
+            let mut args = Vec::with_capacity(exprs.len());
+            for expr in exprs {
+                args.push(self.eval(expr)?)
+            }
+            func(self, args)
+        }
+    }
+}
+
+pub type Function = fn(&mut Context, Vec<Sexp>) -> LispObject;
+
+#[derive(Clone)]
+pub enum Sexp {
+    Void,
+    Nil, // ()
+    Dot, // .
+    Char(char),
+    Str(String),
+    True,
+    False,
+    Number(i64),
+    Symbol(String),
+    List(Vec<Sexp>, Box<Sexp>),
+    Function {
+        name: String,
+        special: bool,
+        func: Function,
+    },
+    // Vector(Vec<&'a Sexp<'a>>),
+    Closure {
+        name: String,
+        params: Vec<String>,
+        vararg: Option<String>,
+        body: Vec<Sexp>,
+        env: Env,
+    },
+}
+
+// See also r5rs 6.1 (eqv? obj1 obj2)
+// FIXME 需要完善函数、列表和字符串
+impl PartialEq for Sexp {
+    fn eq(&self, other: &Sexp) -> bool {
+        use self::Sexp::*;
+
+        match (self, other) {
+            (Nil, Nil) => true,
+            (True, True) => true,
+            (False, False) => true,
+            (Symbol(s1), Symbol(s2)) => s1 == s2, // (string=? (symbol->string obj1) (symbol->string obj2))
+            (Number(n1), Number(n2)) => n1 == n2, // (= obj1 obj2)
+            (Char(c1), Char(c2)) => c1 == c2,     // (char=? obj1 obj2)
+            (Str(s1), Str(s2)) => s1 == s2,
+            (List(v1, b1), List(v2, b2)) => v1 == v2 && b1 == b2,
+            (
+                Function {
+                    name: n1,
+                    special: _,
+                    func: _,
+                },
+                Function {
+                    name: n2,
+                    special: _,
+                    func: _,
+                },
+            ) => n1 == n2, // FIXME
+            _ => false,
+        }
+    }
+}
+
+// 实现 "{}"
+impl<'a> fmt::Display for Sexp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::Sexp::*;
+
+        match self {
+            Void => write!(f, "#<void>"),
+            Nil => write!(f, "()"),
+            True => write!(f, "#t"),
+            False => write!(f, "#f"),
+            Number(n) => write!(f, "{}", n),
+            Symbol(n) => write!(f, "{}", n),
+            Char(n) => write!(f, "#\\{}", char_to_name(*n)),
+            Str(n) => write!(f, "{:?}", n), // 字符串输出时显示双引号
+            Function { name, .. } => write!(f, "#<procedure:{}>", name),
+            Closure { name, .. } => write!(f, "#<procedure:{}>", name),
+            List(exprs, tail) => {
+                let mut datum = String::with_capacity(exprs.len() + 2);
+                datum.push('(');
+                for expr in exprs.iter() {
+                    datum.push_str(format!("{} ", expr).as_str());
+                }
+                if **tail != Sexp::Nil {
+                    // 添加尾部的非空表
+                    datum.push_str(format!(". {}", **tail).as_str());
+                } else if datum.len() > 1 {
+                    // 删除最后的空格
+                    datum.pop();
+                }
+                datum.push(')');
+                write!(f, "{}", datum)
+            }
+            Dot => write!(f, "#<dot>"),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum LispError {
+    ParseError(String),
+    BadSyntax(String, String),
+    Undefined(String),
+    Application,
+    ArityMismatch(String, i32, i32),
+    TypeMismatch(String, String),
+}
+
+impl fmt::Display for LispError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::LispError::*;
+
+        match self {
+            ParseError(err) => write!(f, "read: {}", err),
+            BadSyntax(sym, err) => write!(f, "{}: bad syntax {}", sym, err),
+            Undefined(sym) => write!(
+                f,
+                "{}: undefined;\n cannot reference undefined identifier",
+                sym
+            ),
+            Application => write!(
+                f,
+                "application: not a procedure;\n expected a procedure that can be applied to arguments",
+            ),
+            ArityMismatch(sym, expected, given) => write!(
+                f,
+                "{}: arity mismatch;\n the expected number of arguments does not match the given number\n expected: at least {}\n given: {}",
+                sym, expected, given
+            ),
+            TypeMismatch(expected, given) => {
+                write!(f, "type mismatch: expected: {} given: {}", expected, given)
+            }
+        }
+    }
+}
+
+impl Error for LispError {
+    fn description(&self) -> &str {
+        match self {
+            LispError::ParseError(_) => "read error",
+            LispError::BadSyntax(_, _) => "bad syntax",
+            LispError::Undefined(_) => "undefined identifier",
+            LispError::Application => "not a procedure",
+            LispError::ArityMismatch(_, _, _) => "arity mismatch",
+            LispError::TypeMismatch(_, _) => "type mismatch",
+        }
+    }
+}
+
+// TODO 补充完整ASCII中所有的不可打印字符
+// FIXME newline应该根据平台决定是linefeed还是return
+// See also https://groups.csail.mit.edu/mac/ftpdir/scheme-7.4/doc-html/scheme_6.html
+pub fn name_to_char<'a>(name: &'a str) -> Option<char> {
+    if name.len() > 1 {
+        // 字符名不区分大小写
+        match name.to_lowercase().as_str() {
+            "backspace" => Some('\x08'),
+            "space" => Some(' '),
+            "newline" => Some('\n'),
+            "return" => Some('\r'),
+            _ => None,
+        }
+    } else {
+        name.chars().next()
+    }
+}
+
+// TODO 参看 name_to_char
+pub fn char_to_name(ch: char) -> String {
+    match ch {
+        '\x08' => "backspace".to_owned(),
+        '\n' => "newline".to_owned(),
+        '\r' => "return".to_owned(),
+        ' ' => "space".to_owned(),
+        _ => ch.to_string(),
+    }
+}
