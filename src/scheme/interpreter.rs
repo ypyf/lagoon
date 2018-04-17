@@ -24,6 +24,7 @@ impl<'a> Interpreter<'a> {
     }
 
     pub fn run_repl(&mut self) {
+        self.context.enter_scope();
         self.set_globals();
         loop {
             match self.reader.read() {

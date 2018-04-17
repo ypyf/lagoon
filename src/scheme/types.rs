@@ -6,48 +6,32 @@ use std::str;
 
 pub type LispObject = Result<Sexp, LispError>;
 
-#[derive(Clone, PartialEq)]
-pub struct Env(LinkedList<HashMap<String, Sexp>>);
+type Env = LinkedList<HashMap<String, Sexp>>;
 
-impl<'a> Env {
-    pub fn new() -> Self {
-        Env {
-            0: LinkedList::new(),
-        }
-    }
-
-    pub fn enter(&mut self) {
-        self.0.push_back(HashMap::new())
-    }
-
-    pub fn top(&self) -> Option<&HashMap<String, Sexp>> {
-        self.0.front()
-    }
-
-    pub fn current(&self) -> Option<&HashMap<String, Sexp>> {
-        self.0.back()
-    }
-}
-
-#[derive(Clone, PartialEq)]
 pub struct Context {
     env: Env,
 }
 
 impl Context {
     pub fn new() -> Self {
-        let mut env = Env::new();
-        env.enter();
-        Context { env: env }
+        Context { env: Env::new() }
+    }
+
+    pub fn enter_scope(&mut self) {
+        self.env.push_back(HashMap::new())
+    }
+
+    pub fn leave_scope(&mut self) {
+        self.env.pop_back();
     }
 
     pub fn define_variable<'a>(&mut self, name: &'a str, sexp: Sexp) {
-        let current = self.env.0.back_mut().unwrap();
+        let current = self.env.back_mut().unwrap();
         current.insert(name.to_owned(), sexp);
     }
 
     pub fn define_synatx<'a>(&mut self, name: &'a str, func: Function) {
-        let current = self.env.0.back_mut().unwrap();
+        let current = self.env.back_mut().unwrap();
         current.insert(
             name.to_owned(),
             Sexp::Function {
@@ -59,7 +43,7 @@ impl Context {
     }
 
     pub fn define_procedure<'a>(&mut self, name: &'a str, func: Function) {
-        let current = self.env.0.back_mut().unwrap();
+        let current = self.env.back_mut().unwrap();
         current.insert(
             name.to_owned(),
             Sexp::Function {
@@ -70,16 +54,8 @@ impl Context {
         );
     }
 
-    pub fn define_number(&mut self, name: &str, num: i64) {
-        self.define_variable(name, Sexp::Number(num))
-    }
-
-    pub fn define_string(&mut self, name: &str, string: &str) {
-        self.define_variable(name, Sexp::Str(string.to_owned()))
-    }
-
     pub fn lookup<'a>(&self, name: &'a str) -> Option<&Sexp> {
-        for current in &self.env.0 {
+        for current in &self.env {
             match current.get(name) {
                 Some(val) => return Some(val),
                 None => continue,
