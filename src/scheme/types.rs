@@ -93,18 +93,18 @@ impl Context {
 
     fn apply(&mut self, special: bool, func: Function, exprs: &[Sexp]) -> LispObject {
         if special {
-            func(self, exprs.to_vec())
+            func(self, exprs)
         } else {
             let mut args = Vec::with_capacity(exprs.len());
             for expr in exprs {
                 args.push(self.eval(expr)?)
             }
-            func(self, args)
+            func(self, &args)
         }
     }
 }
 
-pub type Function = fn(&mut Context, Vec<Sexp>) -> LispObject;
+pub type Function = fn(&mut Context, &[Sexp]) -> LispObject;
 
 #[derive(Clone)]
 pub enum Sexp {
