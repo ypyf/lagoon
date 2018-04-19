@@ -202,11 +202,9 @@ impl<'a> Reader<'a> {
 
     // 忽略空白和注释
     fn skip_whitespace(&mut self) {
-        if !self.string {
-            self.line = self.line.trim_left().to_string();
-            if self.line.starts_with(';') {
-                self.line.clear();
-            }
+        self.line = self.line.trim_left().to_string();
+        if self.line.starts_with(';') {
+            self.line.clear();
         }
     }
 
@@ -224,7 +222,9 @@ impl<'a> Reader<'a> {
             }
             io::stdout().flush().unwrap();
             self.input.read_line(&mut self.line).unwrap();
-            self.skip_whitespace();
+            if !self.string {
+                self.skip_whitespace();
+            }
         }
     }
 
