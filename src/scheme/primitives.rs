@@ -97,7 +97,7 @@ pub fn define(context: &mut Context, exprs: &[Sexp]) -> LispObject {
 pub fn quote(_context: &mut Context, exprs: &[Sexp]) -> LispObject {
     let arity = exprs.len();
     if arity != 1 {
-        return Err(LispError::BadSyntax("define".to_owned(), String::new()));
+        return Err(LispError::BadSyntax("quote".to_owned(), String::new()));
     }
 
     Ok(exprs[0].clone())

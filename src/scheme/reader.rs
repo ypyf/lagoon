@@ -75,7 +75,7 @@ impl<'a> Reader<'a> {
     pub fn new(prompt: &'a str) -> Self {
         Reader {
             re_string: Regex::new(r#"^"((\\.|[^"])*)""#).unwrap(),
-            re_char: Regex::new(r"#\\([[:alpha:]]+|.)").unwrap(),
+            re_char: Regex::new(r"^#\\([[:alpha:]]+|.)").unwrap(),
             re_number: Regex::new(r"^[-+]?\d+").unwrap(),
             re_symbol: Regex::new(r"^[^.#;'`,\s\(\)][^#;'`,\s\(\)]*").unwrap(),
             prompt: prompt,
