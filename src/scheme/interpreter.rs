@@ -19,7 +19,7 @@ impl<'a> Interpreter<'a> {
     fn set_globals(&mut self) {
         self.context.define_procedure("+", primitives::plus);
         self.context.define_procedure("-", primitives::subtract);
-        self.context.define_procedure("*", primitives::mul);
+        self.context.define_procedure("*", primitives::multiply);
         self.context.define_synatx("define", primitives::define);
         self.context.define_synatx("quote", primitives::quote);
     }

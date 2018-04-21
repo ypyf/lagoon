@@ -50,7 +50,7 @@ pub fn subtract(_context: &mut Context, args: &[Sexp]) -> LispObject {
     }
 }
 
-pub fn mul(_context: &mut Context, args: &[Sexp]) -> LispObject {
+pub fn multiply(_context: &mut Context, args: &[Sexp]) -> LispObject {
     let mut vals = Vec::with_capacity(args.len());
     for arg in args {
         match arg {
