@@ -4,7 +4,7 @@ use std::error::Error;
 use std::fmt;
 use std::str;
 
-pub type LispObject = Result<Sexp, LispError>;
+pub type LispResult = Result<Sexp, LispError>;
 
 type Env = LinkedList<HashMap<String, Sexp>>;
 
@@ -25,12 +25,12 @@ impl Context {
         self.env.pop_back();
     }
 
-    pub fn define_variable<'a>(&mut self, name: &'a str, sexp: Sexp) {
+    pub fn define_variable<'k>(&mut self, name: &'k str, sexp: Sexp) {
         let current = self.env.back_mut().unwrap();
         current.insert(name.to_owned(), sexp);
     }
 
-    pub fn define_synatx<'a>(&mut self, name: &'a str, func: Function) {
+    pub fn define_synatx<'k>(&mut self, name: &'k str, func: Function) {
         let current = self.env.back_mut().unwrap();
         current.insert(
             name.to_owned(),
@@ -42,7 +42,7 @@ impl Context {
         );
     }
 
-    pub fn define_procedure<'a>(&mut self, name: &'a str, func: Function) {
+    pub fn define_procedure<'k>(&mut self, name: &'k str, func: Function) {
         let current = self.env.back_mut().unwrap();
         current.insert(
             name.to_owned(),
@@ -54,7 +54,7 @@ impl Context {
         );
     }
 
-    pub fn lookup<'a>(&self, name: &'a str) -> Option<&Sexp> {
+    pub fn lookup<'k>(&self, name: &'k str) -> Option<&Sexp> {
         for current in &self.env {
             match current.get(name) {
                 Some(val) => return Some(val),
@@ -64,7 +64,7 @@ impl Context {
         None
     }
 
-    pub fn eval<'s>(&'s mut self, expr: &'s Sexp) -> LispObject {
+    pub fn eval<'s>(&mut self, expr: &'s Sexp) -> LispResult {
         use self::LispError::*;
         use self::Sexp::*;
 
@@ -73,7 +73,7 @@ impl Context {
                 Some(val) => Ok(val.clone()),
                 None => Err(Undefined(sym.clone())),
             },
-            List(v, _) => {
+            List(v, t) => {
                 if v.is_empty() {
                     return Ok(Nil); // follows MIT Scheme
                 }
@@ -83,7 +83,7 @@ impl Context {
                         name: _,
                         special,
                         func,
-                    } => self.apply(special, func, &v[1..]),
+                    } => self.apply(func, special, &v[1..], t),
                     _ => Err(Application),
                 }
             }
@@ -91,10 +91,13 @@ impl Context {
         }
     }
 
-    fn apply(&mut self, special: bool, func: Function, exprs: &[Sexp]) -> LispObject {
+    fn apply(&mut self, func: Function, special: bool, exprs: &[Sexp], last: &Sexp) -> LispResult {
         if special {
             func(self, exprs)
         } else {
+            if *last != Sexp::Nil {
+                return Err(LispError::BadSyntax("apply".to_owned(), "".to_owned()));
+            }
             let mut args = Vec::with_capacity(exprs.len());
             for expr in exprs {
                 args.push(self.eval(expr)?)
@@ -104,20 +107,19 @@ impl Context {
     }
 }
 
-pub type Function = fn(&mut Context, &[Sexp]) -> LispObject;
+pub type Function = fn(&mut Context, &[Sexp]) -> LispResult;
 
 #[derive(Clone)]
 pub enum Sexp {
     Void,
     Nil, // ()
-    Dot, // .
     Char(char),
     Str(String),
     True,
     False,
     Number(i64),
     Symbol(String),
-    List(Vec<Sexp>, Box<Sexp>),
+    List(Box<[Sexp]>, Box<Sexp>),
     Function {
         name: String,
         special: bool,
@@ -135,7 +137,7 @@ pub enum Sexp {
 
 // See also r5rs 6.1 (eqv? obj1 obj2)
 // FIXME 需要完善函数、列表和字符串
-impl PartialEq for Sexp {
+impl<'a> PartialEq for Sexp {
     fn eq(&self, other: &Sexp) -> bool {
         use self::Sexp::*;
 
@@ -197,7 +199,6 @@ impl<'a> fmt::Display for Sexp {
                 datum.push(')');
                 write!(f, "{}", datum)
             }
-            Dot => write!(f, "#<dot>"),
         }
     }
 }
