@@ -1,17 +1,18 @@
 extern crate regex;
 
 use self::regex::Regex;
-use std::error::Error;
-use std::fmt;
-use std::io::{self, Stdin, Write};
-use std::str;
-
 use scheme::types::LispError;
 use scheme::types::LispResult;
 use scheme::types::Sexp;
+use std::error::Error;
+use std::fmt;
+use std::io::{self, BufRead, Write};
+use std::rc::Rc;
+use std::str;
 
 #[derive(Debug, PartialEq)]
 enum Token {
+    EOI,
     Quote,
     Quasiquote,
     Unquote,
@@ -29,6 +30,7 @@ impl<'a> fmt::Display for Token {
         use self::Token::*;
 
         match self {
+            EOI => write!(f, ""),
             Quote => write!(f, "'"),
             Quasiquote => write!(f, "`"),
             Unquote => write!(f, ","),
@@ -48,40 +50,46 @@ pub struct Reader<'a> {
     re_string: Regex,
     re_char: Regex,
     re_symbol: Regex,
-    input: Stdin,
+    input: &'a mut BufRead,
     prompt: &'a str, // 提示符
+    repl: bool,      // REPL
     scope: isize,    // 嵌套深度
     string: bool,    // 字符串内部
     line: String,    // 当前行
 }
 
-// FIXME
 impl<'a> Iterator for Reader<'a> {
     type Item = LispResult;
     fn next(&mut self) -> Option<Self::Item> {
-        Some(self.read())
+        match self.read() {
+            Ok(expr) => Some(Ok(expr)),
+            Err(_) => None,
+        }
     }
 }
 
 impl<'a> Reader<'a> {
-    pub fn new(prompt: &'a str) -> Self {
+    pub fn new(reader: &'a mut BufRead, interactive: bool) -> Self {
         Reader {
             re_string: Regex::new(r#"^"((\\.|[^"])*)""#).unwrap(),
             re_char: Regex::new(r"^#\\([[:alpha:]]+|.)").unwrap(), // 不包含\n
             re_number: Regex::new(r"^[-+]?\d+").unwrap(),
             re_symbol: Regex::new(r"^[^.#;'`,\s\(\)][^#;'`,\s\(\)]*").unwrap(),
-            prompt: prompt,
+            prompt: "r5rs> ",
+            repl: interactive,
             scope: 0,
             string: false,
-            input: io::stdin(),
+            input: reader,
             line: String::new(),
         }
     }
 
     pub fn read(&mut self) -> LispResult {
         let mut macros = vec![];
-        while let Ok(token) = self.next_token() {
+        loop {
+            let token = self.next_token()?;
             match token {
+                Token::EOI => return Err(LispError::EndOfInput),
                 Token::Quote => macros.push("quote"),
                 Token::Quasiquote => macros.push("quasiquote"),
                 Token::Unquote => macros.push("unquote"),
@@ -89,30 +97,29 @@ impl<'a> Reader<'a> {
                 Token::Rune('(') => {
                     let mut expr = self.read_list()?;
                     while let Some(m) = macros.pop() {
-                        let init = vec![Sexp::Symbol(m.to_owned()), expr].into_boxed_slice();
-                        expr = Sexp::List(init, Box::new(Sexp::Nil));
+                        let init = vec![Rc::new(Sexp::Symbol(m.to_owned())), expr];
+                        expr = Rc::new(Sexp::List(init, Rc::new(Sexp::Nil)));
                     }
                     return Ok(expr);
                 }
                 _ => {
                     let mut expr = self.read_atom(token)?;
                     while let Some(m) = macros.pop() {
-                        let init = vec![Sexp::Symbol(m.to_owned()), expr].into_boxed_slice();
-                        expr = Sexp::List(init, Box::new(Sexp::Nil));
+                        let init = vec![Rc::new(Sexp::Symbol(m.to_owned())), expr];
+                        expr = Rc::new(Sexp::List(init, Rc::new(Sexp::Nil)));
                     }
                     return Ok(expr);
                 }
             }
         }
-        self.parse_error("unexpected EOI")
     }
 
     fn read_atom(&mut self, token: Token) -> LispResult {
         match token {
             Token::Number(lex) => self.parse_number(lex.as_str()),
-            Token::Str(lex) => Ok(Sexp::Str(lex)),
-            Token::Char(lex) => Ok(Sexp::Char(lex)),
-            Token::Symbol(lex) => Ok(Sexp::Symbol(lex)),
+            Token::Str(lex) => Ok(Rc::new(Sexp::Str(lex))),
+            Token::Char(lex) => Ok(Rc::new(Sexp::Char(lex))),
+            Token::Symbol(lex) => Ok(Rc::new(Sexp::Symbol(lex))),
             Token::Pound(lex) => self.parse_pound(lex.as_str()),
             Token::Rune('.') => self.parse_error("illegal use of `.'"),
             _ => self.parse_error(format!("unexpected `{}'", token).as_str()),
@@ -124,7 +131,7 @@ impl<'a> Reader<'a> {
         let mut dot = false;
         let mut macros = vec![];
         let mut stack = vec![]; // 保存未处理完的外层列表
-        let mut list: Vec<Sexp> = vec![]; // 当前列表
+        let mut list: Vec<Rc<Sexp>> = vec![]; // 当前列表
         while let Ok(token) = self.next_token() {
             match token {
                 Quote => macros.push("quote"),
@@ -136,10 +143,10 @@ impl<'a> Reader<'a> {
                     list.clear();
                 }
                 Rune(')') => {
-                    let mut expr = Sexp::List(list.into_boxed_slice(), Box::new(Sexp::Nil));
+                    let mut expr = Rc::new(Sexp::List(list, Rc::new(Sexp::Nil)));
                     while let Some(m) = macros.pop() {
-                        let init = vec![Sexp::Symbol(m.to_owned()), expr].into_boxed_slice();
-                        expr = Sexp::List(init, Box::new(Sexp::Nil));
+                        let init = vec![Rc::new(Sexp::Symbol(m.to_owned())), expr];
+                        expr = Rc::new(Sexp::List(init, Rc::new(Sexp::Nil)));
                     }
                     if let Some(mut outer) = stack.pop() {
                         outer.push(expr);
@@ -163,26 +170,26 @@ impl<'a> Reader<'a> {
                     let mut last = self.read_atom(token)?;
                     let mut expr: Sexp;
                     if macros.is_empty() {
-                        expr = Sexp::List(list.into_boxed_slice(), Box::new(last));
+                        expr = Sexp::List(list, last);
                     } else {
                         while let Some(m) = macros.pop() {
-                            list.push(Sexp::Symbol(m.to_owned()));
+                            list.push(Rc::new(Sexp::Symbol(m.to_owned())));
                         }
                         list.push(last);
-                        expr = Sexp::List(list.into_boxed_slice(), Box::new(Sexp::Nil));;
+                        expr = Sexp::List(list, Rc::new(Sexp::Nil));;
                     }
 
                     if let Some(mut outer) = stack.pop() {
-                        outer.push(expr);
+                        outer.push(Rc::new(expr));
                         list = outer;
                     } else {
-                        return Ok(expr);
+                        return Ok(Rc::new(expr));
                     }
                 } else {
                     let mut expr = self.read_atom(token)?;
                     while let Some(m) = macros.pop() {
-                        let init = vec![Sexp::Symbol(m.to_owned()), expr].into_boxed_slice();
-                        expr = Sexp::List(init, Box::new(Sexp::Nil));
+                        let init = vec![Rc::new(Sexp::Symbol(m.to_owned())), expr];
+                        expr = Rc::new(Sexp::List(init, Rc::new(Sexp::Nil)));
                     }
                     list.push(expr)
                 },
@@ -200,14 +207,17 @@ impl<'a> Reader<'a> {
     }
 
     // 打印提示符并读取输入
-    fn read_line(&mut self, prompt: bool) {
+    fn read_line<'s>(&mut self, prompt: &'s str) {
         self.skip_whitespace();
         while self.line.is_empty() {
-            if self.scope == 0 && prompt {
-                print!("{}", self.prompt);
+            if self.scope == 0 && self.repl {
+                print!("{}", prompt);
+                io::stdout().flush().unwrap();
             }
-            io::stdout().flush().unwrap();
             self.input.read_line(&mut self.line).unwrap();
+            if self.line.is_empty() {
+                break;
+            }
             if !self.string {
                 self.skip_whitespace();
             }
@@ -217,7 +227,11 @@ impl<'a> Reader<'a> {
     fn next_token(&mut self) -> Result<Token, LispError> {
         use self::Token::*;
 
-        self.read_line(true);
+        self.read_line(self.prompt);
+
+        if !self.repl && self.line.is_empty() {
+            return Ok(EOI);
+        }
 
         let line = self.line.clone();
 
@@ -231,7 +245,7 @@ impl<'a> Reader<'a> {
             let mut buffer = self.line.clone();
             loop {
                 self.line.clear();
-                self.read_line(false);
+                self.read_line("");
                 buffer.push_str(self.line.as_str());
                 for cap in self.re_string.captures_iter(&buffer) {
                     let rest = &buffer[cap[0].len()..];
@@ -267,6 +281,7 @@ impl<'a> Reader<'a> {
 
         if line.starts_with(",@") {
             self.line = self.line.replacen(",@", "", 1);
+            self.read_line("");
             return Ok(UnquoteSplicing);
         }
 
@@ -280,9 +295,18 @@ impl<'a> Reader<'a> {
                 self.scope -= 1;
                 return Ok(Rune(first));
             }
-            '\'' => return Ok(Quote),
-            '`' => return Ok(Quasiquote),
-            ',' => return Ok(Unquote),
+            '\'' => {
+                self.read_line("");
+                return Ok(Quote);
+            }
+            '`' => {
+                self.read_line("");
+                return Ok(Quasiquote);
+            }
+            ',' => {
+                self.read_line("");
+                return Ok(Unquote);
+            }
             '#' => {
                 let next = self.line.chars().next();
                 if next.is_some() {
@@ -298,7 +322,7 @@ impl<'a> Reader<'a> {
     // TODO 大整数
     fn parse_number<'b>(&mut self, lex: &'b str) -> LispResult {
         match lex.parse::<i64>() {
-            Ok(n) => Ok(Sexp::Number(n)),
+            Ok(n) => Ok(Rc::new(Sexp::Number(n))),
             Err(err) => self.parse_error(err.description()),
         }
     }
@@ -306,14 +330,14 @@ impl<'a> Reader<'a> {
     // See also https://www.gnu.org/software/mit-scheme/documentation/mit-scheme-ref/Additional-Notations.html
     fn parse_pound<'b>(&mut self, lex: &'b str) -> LispResult {
         match lex {
-            "t" => Ok(Sexp::True),
-            "f" => Ok(Sexp::False),
-            "i" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 非精确数前缀
-            "e" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 精确数前缀
-            "d" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 10进制数码前缀
-            "x" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 16进制数码前缀
-            "o" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 8进制数码前缀
-            "b" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 2进制数码前缀
+            "t" => Ok(Rc::new(Sexp::True)),
+            "f" => Ok(Rc::new(Sexp::False)),
+            // "i" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 非精确数前缀
+            // "e" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 精确数前缀
+            // "d" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 10进制数码前缀
+            // "x" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 16进制数码前缀
+            // "o" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 8进制数码前缀
+            // "b" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 2进制数码前缀
             _ => self.parse_error(format!("bad syntax `#{}'", lex).as_str()),
         }
     }

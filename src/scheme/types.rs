@@ -2,11 +2,12 @@ use std::collections::HashMap;
 use std::collections::LinkedList;
 use std::error::Error;
 use std::fmt;
+use std::rc::Rc;
 use std::str;
 
-pub type LispResult = Result<Sexp, LispError>;
+pub type LispResult = Result<Rc<Sexp>, LispError>;
 
-type Env = LinkedList<HashMap<String, Sexp>>;
+type Env = LinkedList<HashMap<String, Rc<Sexp>>>;
 
 pub struct Context {
     env: Env,
@@ -25,7 +26,7 @@ impl Context {
         self.env.pop_back();
     }
 
-    pub fn define_variable<'k>(&mut self, name: &'k str, sexp: Sexp) {
+    pub fn define_variable<'k>(&mut self, name: &'k str, sexp: Rc<Sexp>) {
         let current = self.env.back_mut().unwrap();
         current.insert(name.to_owned(), sexp);
     }
@@ -34,11 +35,11 @@ impl Context {
         let current = self.env.back_mut().unwrap();
         current.insert(
             name.to_owned(),
-            Sexp::Function {
+            Rc::new(Sexp::Function {
                 name: name.to_owned(),
                 special: true,
                 func: func,
-            },
+            }),
         );
     }
 
@@ -46,11 +47,11 @@ impl Context {
         let current = self.env.back_mut().unwrap();
         current.insert(
             name.to_owned(),
-            Sexp::Function {
+            Rc::new(Sexp::Function {
                 name: name.to_owned(),
                 special: false,
                 func: func,
-            },
+            }),
         );
     }
 
@@ -64,50 +65,56 @@ impl Context {
         None
     }
 
-    pub fn eval<'s>(&mut self, expr: &'s Sexp) -> LispResult {
+    pub fn eval<'s>(&mut self, expr: Rc<Sexp>) -> LispResult {
         use self::LispError::*;
         use self::Sexp::*;
 
-        match expr {
-            Symbol(sym) => match self.lookup(sym.as_str()) {
-                Some(val) => Ok(val.clone()),
+        match *expr {
+            Symbol(ref sym) => match self.lookup(sym.as_str()) {
+                Some(val) => Ok(Rc::new(val.clone())),
                 None => Err(Undefined(sym.clone())),
             },
-            List(v, t) => {
+            List(ref v, ref t) => {
                 if v.is_empty() {
-                    return Ok(Nil); // follows MIT Scheme
+                    return Ok(Rc::new(Nil)); // follows MIT Scheme
                 }
-                let first = self.eval(&v[0])?;
-                match first {
+                let first = self.eval(v[0].clone())?;
+                match *first {
                     Function {
                         name: _,
                         special,
                         func,
-                    } => self.apply(func, special, &v[1..], t),
+                    } => self.apply(func, special, &v[1..], &t),
                     _ => Err(Application),
                 }
             }
-            _ => Ok(expr.clone()), // 其它表达式求值到其本身
+            _ => Ok(expr), // 其它表达式求值到其本身
         }
     }
 
-    fn apply(&mut self, func: Function, special: bool, exprs: &[Sexp], last: &Sexp) -> LispResult {
+    fn apply(
+        &mut self,
+        func: Function,
+        special: bool,
+        exprs: &[Rc<Sexp>],
+        last: &Sexp,
+    ) -> LispResult {
         if special {
             func(self, exprs)
         } else {
             if *last != Sexp::Nil {
                 return Err(LispError::BadSyntax("apply".to_owned(), "".to_owned()));
             }
-            let mut args = Vec::with_capacity(exprs.len());
+            let mut args: Vec<Rc<Sexp>> = Vec::with_capacity(exprs.len());
             for expr in exprs {
-                args.push(self.eval(expr)?)
+                args.push(self.eval(expr.clone())?)
             }
             func(self, &args)
         }
     }
 }
 
-pub type Function = fn(&mut Context, &[Sexp]) -> LispResult;
+pub type Function = fn(&mut Context, &[Rc<Sexp>]) -> LispResult;
 
 #[derive(Clone)]
 pub enum Sexp {
@@ -119,7 +126,7 @@ pub enum Sexp {
     False,
     Number(i64),
     Symbol(String),
-    List(Box<[Sexp]>, Box<Sexp>),
+    List(Vec<Rc<Sexp>>, Rc<Sexp>),
     Function {
         name: String,
         special: bool,
@@ -205,6 +212,7 @@ impl<'a> fmt::Display for Sexp {
 
 #[derive(Debug)]
 pub enum LispError {
+    EndOfInput,
     ParseError(String),
     BadSyntax(String, String),
     Undefined(String),
@@ -218,6 +226,7 @@ impl fmt::Display for LispError {
         use self::LispError::*;
 
         match self {
+            EndOfInput => write!(f, ""),
             ParseError(err) => write!(f, "read: {}", err),
             BadSyntax(sym, err) => write!(f, "{}: bad syntax {}", sym, err),
             Undefined(sym) => write!(
@@ -243,13 +252,15 @@ impl fmt::Display for LispError {
 
 impl Error for LispError {
     fn description(&self) -> &str {
+        use self::LispError::*;
         match self {
-            LispError::ParseError(_) => "read error",
-            LispError::BadSyntax(_, _) => "bad syntax",
-            LispError::Undefined(_) => "undefined identifier",
-            LispError::Application => "not a procedure",
-            LispError::ArityMismatch(_, _, _) => "arity mismatch",
-            LispError::TypeMismatch(_, _) => "type mismatch",
+            EndOfInput => "end of input",
+            ParseError(_) => "read error",
+            BadSyntax(_, _) => "bad syntax",
+            Undefined(_) => "undefined identifier",
+            Application => "not a procedure",
+            ArityMismatch(_, _, _) => "arity mismatch",
+            TypeMismatch(_, _) => "type mismatch",
         }
     }
 }
