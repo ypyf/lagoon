@@ -4,6 +4,7 @@ use scheme::types::LispResult;
 use scheme::types::Sexp;
 
 use std::rc::Rc;
+use std::process::exit;
 
 pub fn plus(_context: &mut Context, args: &[Rc<Sexp>]) -> LispResult {
     let mut vals = Vec::with_capacity(args.len());
@@ -79,6 +80,10 @@ pub fn define(context: &mut Context, exprs: &[Rc<Sexp>]) -> LispResult {
         }
         _ => Err(BadSyntax("define".to_owned(), String::new())),
     }
+}
+
+pub fn quit(_context: &mut Context, exprs: &[Rc<Sexp>]) -> LispResult {
+    exit(0);
 }
 
 pub fn quote(_context: &mut Context, exprs: &[Rc<Sexp>]) -> LispResult {

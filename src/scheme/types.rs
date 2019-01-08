@@ -26,36 +26,36 @@ impl Context {
         self.env.pop_back();
     }
 
-    pub fn define_variable<'k>(&mut self, name: &'k str, sexp: Rc<Sexp>) {
+    pub fn define_variable(&mut self, name: &str, sexp: Rc<Sexp>) {
         let current = self.env.back_mut().unwrap();
         current.insert(name.to_owned(), sexp);
     }
 
-    pub fn define_synatx<'k>(&mut self, name: &'k str, func: Function) {
+    pub fn define_synatx(&mut self, name: &str, func: Function) {
         let current = self.env.back_mut().unwrap();
         current.insert(
             name.to_owned(),
             Rc::new(Sexp::Function {
                 name: name.to_owned(),
                 special: true,
-                func: func,
+                func,
             }),
         );
     }
 
-    pub fn define_procedure<'k>(&mut self, name: &'k str, func: Function) {
+    pub fn define_proc(&mut self, name: &str, func: Function) {
         let current = self.env.back_mut().unwrap();
         current.insert(
             name.to_owned(),
             Rc::new(Sexp::Function {
                 name: name.to_owned(),
                 special: false,
-                func: func,
+                func,
             }),
         );
     }
 
-    pub fn lookup<'k>(&self, name: &'k str) -> Option<&Sexp> {
+    pub fn lookup(&self, name: &str) -> Option<&Sexp> {
         for current in &self.env {
             match current.get(name) {
                 Some(val) => return Some(val),
@@ -268,7 +268,7 @@ impl Error for LispError {
 // TODO 补充完整ASCII中所有的不可打印字符
 // FIXME newline应该根据平台决定是linefeed还是return
 // See also https://groups.csail.mit.edu/mac/ftpdir/scheme-7.4/doc-html/scheme_6.html
-pub fn name_to_char<'a>(name: &'a str) -> Option<char> {
+pub fn name_to_char(name: &str) -> Option<char> {
     if name.len() > 1 {
         // 字符名不区分大小写
         match name.to_lowercase().as_str() {

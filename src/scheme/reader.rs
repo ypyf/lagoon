@@ -38,7 +38,7 @@ impl<'a> fmt::Display for Token {
             Number(s) => write!(f, "{}", s),
             Str(s) => write!(f, "{:?}", s),
             Symbol(s) => write!(f, "{}", s),
-            Char(s) => write!(f, "#\\{}", s),
+            Char(s) => write!(f, r#"#\{}"#, s),
             Pound(s) => write!(f, "#{}", s),
             Rune(s) => write!(f, "{}", s),
         }
@@ -74,7 +74,7 @@ impl<'a> Reader<'a> {
             re_string: Regex::new(r#"^"((\\.|[^"])*)""#).unwrap(),
             re_char: Regex::new(r"^#\\([[:alpha:]]+|.)").unwrap(), // 不包含\n
             re_number: Regex::new(r"^[-+]?\d+").unwrap(),
-            re_symbol: Regex::new(r"^[^.#;'`,\s\(\)][^#;'`,\s\(\)]*").unwrap(),
+            re_symbol: Regex::new(r"^[^.#;'`,\s()][^#;'`,\s()]*").unwrap(),
             prompt: "r5rs> ",
             repl: interactive,
             scope: 0,
@@ -167,7 +167,7 @@ impl<'a> Reader<'a> {
                         return self.parse_error("illegal use of `.'");
                     }
 
-                    let mut last = self.read_atom(token)?;
+                    let last = self.read_atom(token)?;
                     let mut expr: Sexp;
                     if macros.is_empty() {
                         expr = Sexp::List(list, last);
@@ -200,14 +200,14 @@ impl<'a> Reader<'a> {
 
     // 忽略空白和注释
     fn skip_whitespace(&mut self) {
-        self.line = self.line.trim_left().to_string();
+        self.line = self.line.trim_start().to_string();
         if self.line.starts_with(';') {
             self.line.clear();
         }
     }
 
     // 打印提示符并读取输入
-    fn read_line<'s>(&mut self, prompt: &'s str) {
+    fn read_line(&mut self, prompt: &str) {
         self.skip_whitespace();
         while self.line.is_empty() {
             if self.scope == 0 && self.repl {
@@ -320,7 +320,7 @@ impl<'a> Reader<'a> {
     }
 
     // TODO 大整数
-    fn parse_number<'b>(&mut self, lex: &'b str) -> LispResult {
+    fn parse_number(&mut self, lex: &str) -> LispResult {
         match lex.parse::<i64>() {
             Ok(n) => Ok(Rc::new(Sexp::Number(n))),
             Err(err) => self.parse_error(err.description()),
@@ -328,7 +328,7 @@ impl<'a> Reader<'a> {
     }
 
     // See also https://www.gnu.org/software/mit-scheme/documentation/mit-scheme-ref/Additional-Notations.html
-    fn parse_pound<'b>(&mut self, lex: &'b str) -> LispResult {
+    fn parse_pound(&mut self, lex: &str) -> LispResult {
         match lex {
             "t" => Ok(Rc::new(Sexp::True)),
             "f" => Ok(Rc::new(Sexp::False)),
@@ -352,7 +352,7 @@ impl<'a> Reader<'a> {
 // TODO 补充完整ASCII中所有的不可打印字符
 // FIXME newline应该根据平台决定是linefeed还是return
 // See also https://groups.csail.mit.edu/mac/ftpdir/scheme-7.4/doc-html/scheme_6.html
-pub fn name_to_char<'a>(name: &'a str) -> Option<char> {
+pub fn name_to_char(name: &str) -> Option<char> {
     if name.len() > 1 {
         // 字符名不区分大小写
         match name.to_lowercase().as_str() {

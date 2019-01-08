@@ -18,9 +18,11 @@ impl Interpreter {
     }
 
     fn set_globals(&mut self) {
-        self.context.define_procedure("+", primitives::plus);
-        self.context.define_procedure("-", primitives::subtract);
-        self.context.define_procedure("*", primitives::multiply);
+        self.context.define_proc("+", primitives::plus);
+        self.context.define_proc("-", primitives::subtract);
+        self.context.define_proc("*", primitives::multiply);
+        self.context.define_proc("quit", primitives::quit);
+        self.context.define_proc("exit", primitives::quit);
         self.context.define_synatx("define", primitives::define);
         self.context.define_synatx("quote", primitives::quote);
     }
@@ -48,7 +50,7 @@ impl Interpreter {
         }
     }
 
-    pub fn run_once<'a>(&mut self, path: &'a str) {
+    pub fn run_once(&mut self, path: &str) {
         match File::open(path) {
             Ok(f) => {
                 let mut file = BufReader::new(f);
