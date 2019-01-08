@@ -55,6 +55,16 @@ pub fn multiply(_context: &mut Context, args: &[Rc<Sexp>]) -> LispResult {
     Ok(Rc::new(Sexp::Number(sum)))
 }
 
+pub fn quit(_context: &mut Context, args: &[Rc<Sexp>]) -> LispResult {
+    for arg in args {
+        match **arg {
+            Sexp::Number(n) => exit(n as i32),
+            _ => exit(0),
+        }
+    }
+    exit(0);
+}
+
 pub fn define(context: &mut Context, exprs: &[Rc<Sexp>]) -> LispResult {
     let arity = exprs.len();
     if arity == 0 {
@@ -80,10 +90,6 @@ pub fn define(context: &mut Context, exprs: &[Rc<Sexp>]) -> LispResult {
         }
         _ => Err(BadSyntax("define".to_owned(), String::new())),
     }
-}
-
-pub fn quit(_context: &mut Context, exprs: &[Rc<Sexp>]) -> LispResult {
-    exit(0);
 }
 
 pub fn quote(_context: &mut Context, exprs: &[Rc<Sexp>]) -> LispResult {
