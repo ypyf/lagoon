@@ -77,7 +77,7 @@ impl Context {
             },
             List(ref v, ref t) => {
                 if v.is_empty() {
-                    return Ok(Rc::new(Nil)); // follows MIT Scheme
+                    return Err(ApplyError("missing procedure expression".to_owned()));
                 }
                 let first = self.eval(v[0].clone())?;
                 match *first {
@@ -86,7 +86,7 @@ impl Context {
                         special,
                         func,
                     } => self.apply(func, special, &v[1..], &t),
-                    _ => Err(ApplyError),
+                    _ => Err(ApplyError("not a procedure".to_owned())),
                 }
             }
             _ => Ok(expr), // 其它表达式求值到其本身
@@ -121,7 +121,8 @@ pub type Function = fn(&mut Context, &[Rc<Sexp>]) -> LispResult;
 #[derive(Clone)]
 pub enum Sexp {
     Void,
-    Nil, // ()
+    Nil,
+    // ()
     Char(char),
     Str(String),
     True,
@@ -216,10 +217,9 @@ impl<'a> fmt::Display for Sexp {
 pub enum LispError {
     EndOfInput,
     Interrupted,
-    ParseError(String),
     BadSyntax(String, String),
     Undefined(String),
-    ApplyError,
+    ApplyError(String),
     ArityMismatch(String, usize, usize),
     TypeMismatch(String, String),
     NotImplemented(String),
@@ -232,25 +232,19 @@ impl fmt::Display for LispError {
         match self {
             EndOfInput => write!(f, ""),
             Interrupted => write!(f, "User interrupt"),
-            ParseError(err) => write!(f, "read: {}", err),
             BadSyntax(sym, err) => write!(f, "{}: bad syntax {}", sym, err),
             Undefined(sym) => write!(
                 f,
                 "{}: undefined;\n cannot reference undefined identifier",
                 sym
             ),
-            ApplyError => write!(
-                f,
-                "application: not a procedure;\n expected a procedure that can be applied to arguments",
-            ),
+            ApplyError(err) => write!(f, "application: {}", err),
             ArityMismatch(sym, expected, given) => write!(
                 f,
                 "{}: arity mismatch;\n the expected number of arguments does not match the given number\n expected: at least {}\n given: {}",
                 sym, expected, given
             ),
-            TypeMismatch(expected, given) => {
-                write!(f, "type mismatch: expected: {} given: {}", expected, given)
-            },
+            TypeMismatch(expected, given) => write!(f, "type mismatch: expected: {} given: {}", expected, given),
             NotImplemented(sym) => write!(f, "{}: not implemented", sym),
         }
     }
@@ -262,10 +256,9 @@ impl Error for LispError {
         match self {
             EndOfInput => "end of input",
             Interrupted => "user interrupt",
-            ParseError(_) => "read error",
             BadSyntax(_, _) => "bad syntax",
             Undefined(_) => "undefined identifier",
-            ApplyError => "not a procedure",
+            ApplyError(_) => "application error",
             ArityMismatch(_, _, _) => "arity mismatch",
             TypeMismatch(_, _) => "type mismatch",
             NotImplemented(_) => "not implemented",

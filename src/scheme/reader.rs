@@ -13,6 +13,7 @@ use std::str;
 use self::regex::Regex;
 use self::rustyline::error::ReadlineError;
 use self::rustyline::Editor;
+use self::rustyline::config::Configurer;
 
 #[derive(Debug, PartialEq)]
 enum Token {
@@ -60,7 +61,7 @@ pub struct Reader {
     // 字符串内部
     string: bool,
     // 当前行
-    current_line: String,
+    line: String,
 }
 
 impl Iterator for Reader {
@@ -76,7 +77,10 @@ impl Iterator for Reader {
 #[allow(dead_code)]
 impl Reader {
     pub fn new() -> Self {
-        let rl = Editor::<()>::new();
+        let mut rl = Editor::<()>::new();
+        rl.set_auto_add_history(true);
+        rl.set_history_ignore_dups(true);
+        rl.set_history_ignore_space(true);
         Reader {
             re_string: Regex::new(r#"^"((\\.|[^"])*)""#).unwrap(),
             re_char: Regex::new(r"^#\\([[:alpha:]]+|.)").unwrap(), // 不包含\n
@@ -87,7 +91,7 @@ impl Reader {
             scope: 0,
             string: false,
             readline: rl,
-            current_line: String::new(),
+            line: String::new(),
         }
     }
 
@@ -230,20 +234,21 @@ impl Reader {
     }
 
     // 打印提示符并读取输入
-    fn read_line(&mut self) -> Result<String, LispError> {
-        let mut line = Reader::skip_whitespace(&self.current_line);
+    fn read_line(&mut self, continue_read: bool) -> Result<String, LispError> {
+        let mut line = Reader::skip_whitespace(&self.line);
         while line.is_empty() {
-            let prompt = if self.scope == 0 && !self.string {
+            let prompt = if self.scope == 0 && !continue_read && !self.string {
                 &self.ps1
             } else {
                 &self.ps2
             };
             match self.readline.readline(prompt) {
                 Ok(input) => {
-                    self.readline.add_history_entry(input.as_ref());
                     line = input;
                     if !self.string {
                         line = Reader::skip_whitespace(&line);
+                    } else {
+                        line.push('\n');
                     }
                 }
                 Err(ReadlineError::Interrupted) => return Err(LispError::Interrupted),
@@ -258,31 +263,33 @@ impl Reader {
     fn next_token(&mut self) -> Result<Token, LispError> {
         use self::Token::*;
 
-        match self.read_line() {
-            Ok(line) => self.current_line = line.to_owned(),
+        match self.read_line(false) {
+            Ok(line) => self.line = line.to_owned(),
             Err(err) => return Err(err)
         }
 
-        let line = self.current_line.clone();
+        let line = self.line.clone();
 
         // 解析字符串
+        // TODO 处理字符中的转义和字符序列
         if let Some('"') = line.chars().peekable().peek() {
             for cap in self.re_string.captures_iter(&line) {
-                self.current_line = self.current_line.replacen(&cap[0], "", 1);
+                self.line = self.line.replacen(&cap[0], "", 1);
                 return Ok(Str(cap[1].to_owned()));
             }
             self.string = true;
-            let mut buffer = self.current_line.clone();
+            let mut buffer = self.line.clone();
+            buffer.push('\n');
             loop {
-                self.current_line.clear();
-                match self.read_line() {
-                    Ok(line) => self.current_line = line.to_owned(),
+                self.line.clear();
+                match self.read_line(false) {
+                    Ok(line) => self.line = line.to_owned(),
                     Err(err) => return Err(err)
                 }
-                buffer.push_str(self.current_line.as_str());
+                buffer.push_str(self.line.as_str());
                 for cap in self.re_string.captures_iter(&buffer) {
                     let rest = &buffer[cap[0].len()..];
-                    self.current_line = rest.to_string();
+                    self.line = rest.to_string();
                     self.string = false;
                     return Ok(Str(cap[1].to_owned()));
                 }
@@ -291,7 +298,7 @@ impl Reader {
 
         // 解析字符
         for cap in self.re_char.captures_iter(&line) {
-            self.current_line = self.current_line.replacen(&cap[0], "", 1);
+            self.line = self.line.replacen(&cap[0], "", 1);
             match name_to_char(&cap[1]) {
                 Some(c) => return Ok(Char(c)),
                 None => {
@@ -303,25 +310,25 @@ impl Reader {
         }
 
         for cap in self.re_number.captures_iter(&line) {
-            self.current_line = self.current_line.replacen(&cap[0], "", 1);
+            self.line = self.line.replacen(&cap[0], "", 1);
             return Ok(Number(cap[0].to_owned()));
         }
 
         for cap in self.re_symbol.captures_iter(&line) {
-            self.current_line = self.current_line.replacen(&cap[0], "", 1);
+            self.line = self.line.replacen(&cap[0], "", 1);
             return Ok(Symbol(cap[0].to_lowercase()));
         }
 
         if line.starts_with(",@") {
-            self.current_line = self.current_line.replacen(",@", "", 1);
-            match self.read_line() {
-                Ok(line) => self.current_line = line.to_owned(),
+            self.line = self.line.replacen(",@", "", 1);
+            match self.read_line(true) {
+                Ok(line) => self.line = line.to_owned(),
                 Err(err) => return Err(err)
             }
             return Ok(UnquoteSplicing);
         }
 
-        let first = self.current_line.remove(0);
+        let first = self.line.remove(0);
         match first {
             '(' => {
                 self.scope += 1;
@@ -332,33 +339,33 @@ impl Reader {
                 return Ok(Rune(first));
             }
             '\'' => {
-                match self.read_line() {
-                    Ok(line) => self.current_line = line.to_owned(),
+                match self.read_line(true) {
+                    Ok(line) => self.line = line.to_owned(),
                     Err(err) => return Err(err)
                 }
                 return Ok(Quote);
             }
             '`' => {
-                match self.read_line() {
-                    Ok(line) => self.current_line = line.to_owned(),
+                match self.read_line(true) {
+                    Ok(line) => self.line = line.to_owned(),
                     Err(err) => return Err(err)
                 }
                 return Ok(Quasiquote);
             }
             ',' => {
-                match self.read_line() {
-                    Ok(line) => self.current_line = line.to_owned(),
+                match self.read_line(true) {
+                    Ok(line) => self.line = line.to_owned(),
                     Err(err) => return Err(err)
                 }
                 return Ok(Unquote);
             }
             '#' => {
-                let next = self.current_line.chars().next();
+                let next = self.line.chars().next();
                 if next.is_some() {
-                    self.current_line.remove(0);
+                    self.line.remove(0);
                     return Ok(Pound(next.unwrap().to_lowercase().to_string()));
                 }
-                return self.parse_error(format!("{}", first).as_str());
+                return self.parse_error(format!("`{}'", first).as_str());
             }
             _ => return Ok(Rune(first)),
         }
@@ -383,14 +390,14 @@ impl Reader {
             // "x" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 16进制数码前缀
             // "o" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 8进制数码前缀
             // "b" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 2进制数码前缀
-            _ => self.parse_error(format!("bad syntax `#{}'", lex).as_str()),
+            _ => self.parse_error(format!("`#{}'", lex).as_str()),
         }
     }
 
     fn parse_error<T>(&mut self, err: &str) -> Result<T, LispError> {
         self.scope = 0;
         self.string = false;
-        Err(LispError::ParseError(err.to_owned()))
+        Err(LispError::BadSyntax("read".to_owned(), err.to_owned()))
     }
 }
 
