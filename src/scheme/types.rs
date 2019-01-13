@@ -13,6 +13,7 @@ pub struct Context {
     env: Env,
 }
 
+#[allow(dead_code)]
 impl Context {
     pub fn new() -> Self {
         Context { env: Env::new() }
@@ -85,7 +86,7 @@ impl Context {
                         special,
                         func,
                     } => self.apply(func, special, &v[1..], &t),
-                    _ => Err(Application),
+                    _ => Err(ApplyError),
                 }
             }
             _ => Ok(expr), // 其它表达式求值到其本身
@@ -116,6 +117,7 @@ impl Context {
 
 pub type Function = fn(&mut Context, &[Rc<Sexp>]) -> LispResult;
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub enum Sexp {
     Void,
@@ -213,12 +215,14 @@ impl<'a> fmt::Display for Sexp {
 #[derive(Debug)]
 pub enum LispError {
     EndOfInput,
+    Interrupted,
     ParseError(String),
     BadSyntax(String, String),
     Undefined(String),
-    Application,
+    ApplyError,
     ArityMismatch(String, usize, usize),
     TypeMismatch(String, String),
+    NotImplemented(String),
 }
 
 impl fmt::Display for LispError {
@@ -227,6 +231,7 @@ impl fmt::Display for LispError {
 
         match self {
             EndOfInput => write!(f, ""),
+            Interrupted => write!(f, "User interrupt"),
             ParseError(err) => write!(f, "read: {}", err),
             BadSyntax(sym, err) => write!(f, "{}: bad syntax {}", sym, err),
             Undefined(sym) => write!(
@@ -234,7 +239,7 @@ impl fmt::Display for LispError {
                 "{}: undefined;\n cannot reference undefined identifier",
                 sym
             ),
-            Application => write!(
+            ApplyError => write!(
                 f,
                 "application: not a procedure;\n expected a procedure that can be applied to arguments",
             ),
@@ -245,7 +250,8 @@ impl fmt::Display for LispError {
             ),
             TypeMismatch(expected, given) => {
                 write!(f, "type mismatch: expected: {} given: {}", expected, given)
-            }
+            },
+            NotImplemented(sym) => write!(f, "{}: not implemented", sym),
         }
     }
 }
@@ -255,12 +261,14 @@ impl Error for LispError {
         use self::LispError::*;
         match self {
             EndOfInput => "end of input",
+            Interrupted => "user interrupt",
             ParseError(_) => "read error",
             BadSyntax(_, _) => "bad syntax",
             Undefined(_) => "undefined identifier",
-            Application => "not a procedure",
+            ApplyError => "not a procedure",
             ArityMismatch(_, _, _) => "arity mismatch",
             TypeMismatch(_, _) => "type mismatch",
+            NotImplemented(_) => "not implemented",
         }
     }
 }
@@ -268,6 +276,7 @@ impl Error for LispError {
 // TODO 补充完整ASCII中所有的不可打印字符
 // FIXME newline应该根据平台决定是linefeed还是return
 // See also https://groups.csail.mit.edu/mac/ftpdir/scheme-7.4/doc-html/scheme_6.html
+#[allow(dead_code)]
 pub fn name_to_char(name: &str) -> Option<char> {
     if name.len() > 1 {
         // 字符名不区分大小写

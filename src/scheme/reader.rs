@@ -1,18 +1,21 @@
 extern crate regex;
+extern crate rustyline;
 
-use self::regex::Regex;
 use scheme::types::LispError;
 use scheme::types::LispResult;
 use scheme::types::Sexp;
+
 use std::error::Error;
 use std::fmt;
-use std::io::{self, BufRead, Write};
 use std::rc::Rc;
 use std::str;
 
+use self::regex::Regex;
+use self::rustyline::error::ReadlineError;
+use self::rustyline::Editor;
+
 #[derive(Debug, PartialEq)]
 enum Token {
-    EOI,
     Quote,
     Quasiquote,
     Unquote,
@@ -25,12 +28,11 @@ enum Token {
     Rune(char),
 }
 
-impl<'a> fmt::Display for Token {
+impl fmt::Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::Token::*;
 
         match self {
-            EOI => write!(f, ""),
             Quote => write!(f, "'"),
             Quasiquote => write!(f, "`"),
             Unquote => write!(f, ","),
@@ -45,20 +47,23 @@ impl<'a> fmt::Display for Token {
     }
 }
 
-pub struct Reader<'a> {
+pub struct Reader {
     re_number: Regex,
     re_string: Regex,
     re_char: Regex,
     re_symbol: Regex,
-    input: &'a mut BufRead,
-    prompt: &'a str, // 提示符
-    repl: bool,      // REPL
-    scope: isize,    // 嵌套深度
-    string: bool,    // 字符串内部
-    line: String,    // 当前行
+    readline: Editor<()>,
+    ps1: String,
+    ps2: String,
+    // 嵌套深度
+    scope: isize,
+    // 字符串内部
+    string: bool,
+    // 当前行
+    current_line: String,
 }
 
-impl<'a> Iterator for Reader<'a> {
+impl Iterator for Reader {
     type Item = LispResult;
     fn next(&mut self) -> Option<Self::Item> {
         match self.read() {
@@ -68,48 +73,58 @@ impl<'a> Iterator for Reader<'a> {
     }
 }
 
-impl<'a> Reader<'a> {
-    pub fn new(reader: &'a mut BufRead, interactive: bool) -> Self {
+#[allow(dead_code)]
+impl Reader {
+    pub fn new() -> Self {
+        let mut rl = Editor::<()>::new();
         Reader {
             re_string: Regex::new(r#"^"((\\.|[^"])*)""#).unwrap(),
             re_char: Regex::new(r"^#\\([[:alpha:]]+|.)").unwrap(), // 不包含\n
             re_number: Regex::new(r"^[-+]?\d+").unwrap(),
             re_symbol: Regex::new(r"^[^.#;'`,\s()][^#;'`,\s()]*").unwrap(),
-            prompt: "r5rs> ",
-            repl: interactive,
+            ps1: "r5rs> ".to_owned(),
+            ps2: "... ".to_owned(),
             scope: 0,
             string: false,
-            input: reader,
-            line: String::new(),
+            readline: rl,
+            current_line: String::new(),
         }
+    }
+
+    pub fn set_prompt(&mut self, ps1: &str, ps2: &str) {
+        self.ps1 = ps1.to_owned();
+        self.ps2 = ps2.to_owned();
     }
 
     pub fn read(&mut self) -> LispResult {
         let mut macros = vec![];
         loop {
-            let token = self.next_token()?;
-            match token {
-                Token::EOI => return Err(LispError::EndOfInput),
-                Token::Quote => macros.push("quote"),
-                Token::Quasiquote => macros.push("quasiquote"),
-                Token::Unquote => macros.push("unquote"),
-                Token::UnquoteSplicing => macros.push("unquote-splicing"),
-                Token::Rune('(') => {
-                    let mut expr = self.read_list()?;
-                    while let Some(m) = macros.pop() {
-                        let init = vec![Rc::new(Sexp::Symbol(m.to_owned())), expr];
-                        expr = Rc::new(Sexp::List(init, Rc::new(Sexp::Nil)));
+            match self.next_token() {
+                Ok(token) => {
+                    match token {
+                        Token::Quote => macros.push("quote"),
+                        Token::Quasiquote => macros.push("quasiquote"),
+                        Token::Unquote => macros.push("unquote"),
+                        Token::UnquoteSplicing => macros.push("unquote-splicing"),
+                        Token::Rune('(') => {
+                            let mut expr = self.read_list()?;
+                            while let Some(m) = macros.pop() {
+                                let init = vec![Rc::new(Sexp::Symbol(m.to_owned())), expr];
+                                expr = Rc::new(Sexp::List(init, Rc::new(Sexp::Nil)));
+                            }
+                            return Ok(expr);
+                        }
+                        _ => {
+                            let mut expr = self.read_atom(token)?;
+                            while let Some(m) = macros.pop() {
+                                let init = vec![Rc::new(Sexp::Symbol(m.to_owned())), expr];
+                                expr = Rc::new(Sexp::List(init, Rc::new(Sexp::Nil)));
+                            }
+                            return Ok(expr);
+                        }
                     }
-                    return Ok(expr);
                 }
-                _ => {
-                    let mut expr = self.read_atom(token)?;
-                    while let Some(m) = macros.pop() {
-                        let init = vec![Rc::new(Sexp::Symbol(m.to_owned())), expr];
-                        expr = Rc::new(Sexp::List(init, Rc::new(Sexp::Nil)));
-                    }
-                    return Ok(expr);
-                }
+                Err(err) => return Err(err)
             }
         }
     }
@@ -132,124 +147,141 @@ impl<'a> Reader<'a> {
         let mut macros = vec![];
         let mut stack = vec![]; // 保存未处理完的外层列表
         let mut list: Vec<Rc<Sexp>> = vec![]; // 当前列表
-        while let Ok(token) = self.next_token() {
-            match token {
-                Quote => macros.push("quote"),
-                Quasiquote => macros.push("quasiquote"),
-                Unquote => macros.push("unquote"),
-                UnquoteSplicing => macros.push("unquote-splicing"),
-                Rune('(') => {
-                    stack.push(list.clone());
-                    list.clear();
-                }
-                Rune(')') => {
-                    let mut expr = Rc::new(Sexp::List(list, Rc::new(Sexp::Nil)));
-                    while let Some(m) = macros.pop() {
-                        let init = vec![Rc::new(Sexp::Symbol(m.to_owned())), expr];
-                        expr = Rc::new(Sexp::List(init, Rc::new(Sexp::Nil)));
-                    }
-                    if let Some(mut outer) = stack.pop() {
-                        outer.push(expr);
-                        list = outer;
-                    } else {
-                        return Ok(expr);
-                    }
-                }
-                Rune('.') => {
-                    if list.is_empty() {
-                        return self.parse_error("illegal use of `.'");
-                    }
-                    dot = true;
-                }
-                _ => if dot {
-                    dot = false;
-                    if self.next_token()? != Rune(')') {
-                        return self.parse_error("illegal use of `.'");
-                    }
-
-                    let last = self.read_atom(token)?;
-                    let mut expr: Sexp;
-                    if macros.is_empty() {
-                        expr = Sexp::List(list, last);
-                    } else {
-                        while let Some(m) = macros.pop() {
-                            list.push(Rc::new(Sexp::Symbol(m.to_owned())));
+        loop {
+            match self.next_token() {
+                Ok(token) => {
+                    match token {
+                        Quote => macros.push("quote"),
+                        Quasiquote => macros.push("quasiquote"),
+                        Unquote => macros.push("unquote"),
+                        UnquoteSplicing => macros.push("unquote-splicing"),
+                        Rune('(') => {
+                            stack.push(list.clone());
+                            list.clear();
                         }
-                        list.push(last);
-                        expr = Sexp::List(list, Rc::new(Sexp::Nil));;
-                    }
+                        Rune(')') => {
+                            let mut expr = Rc::new(Sexp::List(list, Rc::new(Sexp::Nil)));
+                            while let Some(m) = macros.pop() {
+                                let init = vec![Rc::new(Sexp::Symbol(m.to_owned())), expr];
+                                expr = Rc::new(Sexp::List(init, Rc::new(Sexp::Nil)));
+                            }
+                            if let Some(mut outer) = stack.pop() {
+                                outer.push(expr);
+                                list = outer;
+                            } else {
+                                return Ok(expr);
+                            }
+                        }
+                        Rune('.') => {
+                            if list.is_empty() {
+                                return self.parse_error("illegal use of `.'");
+                            }
+                            dot = true;
+                        }
+                        _ => if dot {
+                            dot = false;
+                            if self.next_token()? != Rune(')') {
+                                return self.parse_error("illegal use of `.'");
+                            }
 
-                    if let Some(mut outer) = stack.pop() {
-                        outer.push(Rc::new(expr));
-                        list = outer;
-                    } else {
-                        return Ok(Rc::new(expr));
+                            let last = self.read_atom(token)?;
+                            let mut expr: Sexp;
+                            if macros.is_empty() {
+                                expr = Sexp::List(list, last);
+                            } else {
+                                while let Some(m) = macros.pop() {
+                                    list.push(Rc::new(Sexp::Symbol(m.to_owned())));
+                                }
+                                list.push(last);
+                                expr = Sexp::List(list, Rc::new(Sexp::Nil));
+                                ;
+                            }
+
+                            if let Some(mut outer) = stack.pop() {
+                                outer.push(Rc::new(expr));
+                                list = outer;
+                            } else {
+                                return Ok(Rc::new(expr));
+                            }
+                        } else {
+                            let mut expr = self.read_atom(token)?;
+                            while let Some(m) = macros.pop() {
+                                let init = vec![Rc::new(Sexp::Symbol(m.to_owned())), expr];
+                                expr = Rc::new(Sexp::List(init, Rc::new(Sexp::Nil)));
+                            }
+                            list.push(expr)
+                        },
                     }
-                } else {
-                    let mut expr = self.read_atom(token)?;
-                    while let Some(m) = macros.pop() {
-                        let init = vec![Rc::new(Sexp::Symbol(m.to_owned())), expr];
-                        expr = Rc::new(Sexp::List(init, Rc::new(Sexp::Nil)));
-                    }
-                    list.push(expr)
-                },
+                }
+                Err(err) => return Err(err)
             }
         }
         self.parse_error("expected a `)' to close `('")
     }
 
     // 忽略空白和注释
-    fn skip_whitespace(&mut self) {
-        self.line = self.line.trim_start().to_string();
-        if self.line.starts_with(';') {
-            self.line.clear();
+    fn skip_whitespace(line: &String) -> String {
+        let x = line.trim_start();
+        if x.starts_with(';') {
+            return "".to_owned();
         }
+        x.to_owned()
     }
 
     // 打印提示符并读取输入
-    fn read_line(&mut self, prompt: &str) {
-        self.skip_whitespace();
-        while self.line.is_empty() {
-            if self.scope == 0 && self.repl {
-                print!("{}", prompt);
-                io::stdout().flush().unwrap();
-            }
-            self.input.read_line(&mut self.line).unwrap();
-            if self.line.is_empty() {
-                break;
-            }
-            if !self.string {
-                self.skip_whitespace();
-            }
+    fn read_line(&mut self) -> Result<String, LispError> {
+        let mut line = Reader::skip_whitespace(&self.current_line);
+        while line.is_empty() {
+            let prompt = if self.scope == 0 && !self.string {
+                &self.ps1
+            } else {
+                &self.ps2
+            };
+            match self.readline.readline(prompt) {
+                Ok(input) => {
+                    self.readline.add_history_entry(input.as_ref());
+                    line = input;
+                    if !self.string {
+                        line = Reader::skip_whitespace(&line);
+                    }
+                }
+                Err(ReadlineError::Interrupted) => return Err(LispError::Interrupted),
+                Err(ReadlineError::Eof) => return Err(LispError::EndOfInput),
+                // FIXME use a distinct error type
+                Err(err) => panic!(err),
+            };
         }
+        Ok(line.to_owned())
     }
 
     fn next_token(&mut self) -> Result<Token, LispError> {
         use self::Token::*;
 
-        self.read_line(self.prompt);
-
-        if !self.repl && self.line.is_empty() {
-            return Ok(EOI);
+        match self.read_line() {
+            Ok(line) => self.current_line = line.to_owned(),
+            Err(err) => return Err(err)
         }
 
-        let line = self.line.clone();
+        let line = self.current_line.clone();
 
         // 解析字符串
         if let Some('"') = line.chars().peekable().peek() {
             for cap in self.re_string.captures_iter(&line) {
-                self.line = self.line.replacen(&cap[0], "", 1);
+                self.current_line = self.current_line.replacen(&cap[0], "", 1);
                 return Ok(Str(cap[1].to_owned()));
             }
             self.string = true;
-            let mut buffer = self.line.clone();
+            let mut buffer = self.current_line.clone();
             loop {
-                self.line.clear();
-                self.read_line("");
-                buffer.push_str(self.line.as_str());
+                self.current_line.clear();
+                match self.read_line() {
+                    Ok(line) => self.current_line = line.to_owned(),
+                    Err(err) => return Err(err)
+                }
+                buffer.push_str(self.current_line.as_str());
                 for cap in self.re_string.captures_iter(&buffer) {
                     let rest = &buffer[cap[0].len()..];
-                    self.line = rest.to_string();
+                    self.current_line = rest.to_string();
                     self.string = false;
                     return Ok(Str(cap[1].to_owned()));
                 }
@@ -258,7 +290,7 @@ impl<'a> Reader<'a> {
 
         // 解析字符
         for cap in self.re_char.captures_iter(&line) {
-            self.line = self.line.replacen(&cap[0], "", 1);
+            self.current_line = self.current_line.replacen(&cap[0], "", 1);
             match name_to_char(&cap[1]) {
                 Some(c) => return Ok(Char(c)),
                 None => {
@@ -270,22 +302,25 @@ impl<'a> Reader<'a> {
         }
 
         for cap in self.re_number.captures_iter(&line) {
-            self.line = self.line.replacen(&cap[0], "", 1);
+            self.current_line = self.current_line.replacen(&cap[0], "", 1);
             return Ok(Number(cap[0].to_owned()));
         }
 
         for cap in self.re_symbol.captures_iter(&line) {
-            self.line = self.line.replacen(&cap[0], "", 1);
+            self.current_line = self.current_line.replacen(&cap[0], "", 1);
             return Ok(Symbol(cap[0].to_lowercase()));
         }
 
         if line.starts_with(",@") {
-            self.line = self.line.replacen(",@", "", 1);
-            self.read_line("");
+            self.current_line = self.current_line.replacen(",@", "", 1);
+            match self.read_line() {
+                Ok(line) => self.current_line = line.to_owned(),
+                Err(err) => return Err(err)
+            }
             return Ok(UnquoteSplicing);
         }
 
-        let first = self.line.remove(0);
+        let first = self.current_line.remove(0);
         match first {
             '(' => {
                 self.scope += 1;
@@ -296,21 +331,30 @@ impl<'a> Reader<'a> {
                 return Ok(Rune(first));
             }
             '\'' => {
-                self.read_line("");
+                match self.read_line() {
+                    Ok(line) => self.current_line = line.to_owned(),
+                    Err(err) => return Err(err)
+                }
                 return Ok(Quote);
             }
             '`' => {
-                self.read_line("");
+                match self.read_line() {
+                    Ok(line) => self.current_line = line.to_owned(),
+                    Err(err) => return Err(err)
+                }
                 return Ok(Quasiquote);
             }
             ',' => {
-                self.read_line("");
+                match self.read_line() {
+                    Ok(line) => self.current_line = line.to_owned(),
+                    Err(err) => return Err(err)
+                }
                 return Ok(Unquote);
             }
             '#' => {
-                let next = self.line.chars().next();
+                let next = self.current_line.chars().next();
                 if next.is_some() {
-                    self.line.remove(0);
+                    self.current_line.remove(0);
                     return Ok(Pound(next.unwrap().to_lowercase().to_string()));
                 }
                 return self.parse_error(format!("{}", first).as_str());
@@ -342,7 +386,7 @@ impl<'a> Reader<'a> {
         }
     }
 
-    fn parse_error<'b, T>(&mut self, err: &'b str) -> Result<T, LispError> {
+    fn parse_error<T>(&mut self, err: &str) -> Result<T, LispError> {
         self.scope = 0;
         self.string = false;
         Err(LispError::ParseError(err.to_owned()))
@@ -368,6 +412,7 @@ pub fn name_to_char(name: &str) -> Option<char> {
 }
 
 // TODO 参看 name_to_char
+#[allow(dead_code)]
 pub fn char_to_name(ch: char) -> String {
     match ch {
         '\x08' => "backspace".to_owned(),

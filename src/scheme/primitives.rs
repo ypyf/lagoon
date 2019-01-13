@@ -92,6 +92,14 @@ pub fn define(context: &mut Context, exprs: &[Rc<Sexp>]) -> LispResult {
     }
 }
 
+pub fn assign(_context: &mut Context, exprs: &[Rc<Sexp>]) -> LispResult {
+    let arity = exprs.len();
+    if arity == 0 {
+        return Err(BadSyntax("set!".to_owned(), String::new()));
+    }
+    Err(NotImplemented("set!".to_owned()))
+}
+
 pub fn quote(_context: &mut Context, exprs: &[Rc<Sexp>]) -> LispResult {
     let arity = exprs.len();
     if arity != 1 {
