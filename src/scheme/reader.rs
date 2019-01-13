@@ -76,7 +76,7 @@ impl Iterator for Reader {
 #[allow(dead_code)]
 impl Reader {
     pub fn new() -> Self {
-        let mut rl = Editor::<()>::new();
+        let rl = Editor::<()>::new();
         Reader {
             re_string: Regex::new(r#"^"((\\.|[^"])*)""#).unwrap(),
             re_char: Regex::new(r"^#\\([[:alpha:]]+|.)").unwrap(), // 不包含\n
@@ -218,7 +218,6 @@ impl Reader {
                 Err(err) => return Err(err)
             }
         }
-        self.parse_error("expected a `)' to close `('")
     }
 
     // 忽略空白和注释
