@@ -97,6 +97,8 @@ impl Reader {
     }
 
     pub fn read(&mut self) -> LispResult {
+        self.scope = 0;
+        self.string = false;
         let mut macros = vec![];
         loop {
             match self.next_token() {
