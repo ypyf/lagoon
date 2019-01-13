@@ -1,5 +1,6 @@
 extern crate regex;
 extern crate rustyline;
+extern crate dirs;
 
 use scheme::types::LispError;
 use scheme::types::LispResult;
@@ -7,6 +8,7 @@ use scheme::types::Sexp;
 
 use std::error::Error;
 use std::fmt;
+use std::path::{PathBuf};
 use std::rc::Rc;
 use std::str;
 
@@ -14,6 +16,7 @@ use self::regex::Regex;
 use self::rustyline::error::ReadlineError;
 use self::rustyline::Editor;
 use self::rustyline::config::Configurer;
+use std::fs::File;
 
 #[derive(Debug, PartialEq)]
 enum Token {
@@ -62,6 +65,8 @@ pub struct Reader {
     string: bool,
     // 当前行
     line: String,
+    // 历史文件路径
+    history: PathBuf,
 }
 
 impl Iterator for Reader {
@@ -78,6 +83,11 @@ impl Iterator for Reader {
 impl Reader {
     pub fn new() -> Self {
         let mut rl = Editor::<()>::new();
+        let home_dir = dirs::home_dir().unwrap();
+        let history = home_dir.join(".lagoon_history");
+        if history.exists() {
+            rl.load_history(&history).unwrap();
+        }
         rl.set_auto_add_history(true);
         rl.set_history_ignore_dups(true);
         rl.set_history_ignore_space(true);
@@ -92,6 +102,7 @@ impl Reader {
             string: false,
             readline: rl,
             line: String::new(),
+            history,
         }
     }
 
@@ -257,6 +268,7 @@ impl Reader {
                 Err(err) => panic!(err),
             };
         }
+        self.readline.save_history(&self.history).unwrap();
         Ok(line.to_owned())
     }
 
