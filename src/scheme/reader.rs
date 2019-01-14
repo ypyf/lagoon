@@ -111,36 +111,34 @@ impl Reader {
     }
 
     pub fn read(&mut self) -> LispResult {
+        use self::Sexp::*;
+
         self.scope = 0;
         self.string = false;
         let mut macros = vec![];
         loop {
-            match self.next_token() {
-                Ok(token) => {
-                    match token {
-                        Token::Quote => macros.push("quote"),
-                        Token::Quasiquote => macros.push("quasiquote"),
-                        Token::Unquote => macros.push("unquote"),
-                        Token::UnquoteSplicing => macros.push("unquote-splicing"),
-                        Token::Rune('(') => {
-                            let mut expr = self.read_list()?;
-                            while let Some(m) = macros.pop() {
-                                let init = vec![Sexp::Symbol(m.to_owned()), expr];
-                                expr = Sexp::List(init, Rc::new(Sexp::Nil));
-                            }
-                            return Ok(expr);
-                        }
-                        _ => {
-                            let mut expr = self.read_atom(token)?;
-                            while let Some(m) = macros.pop() {
-                                let init = vec![Sexp::Symbol(m.to_owned()), expr];
-                                expr = Sexp::List(init, Rc::new(Sexp::Nil));
-                            }
-                            return Ok(expr);
-                        }
+            let token = self.next_token()?;
+            match token {
+                Token::Quote => macros.push("quote"),
+                Token::Quasiquote => macros.push("quasiquote"),
+                Token::Unquote => macros.push("unquote"),
+                Token::UnquoteSplicing => macros.push("unquote-splicing"),
+                Token::Rune('(') => {
+                    let mut expr = self.read_list()?;
+                    while let Some(m) = macros.pop() {
+                        let init = vec![Symbol(m.to_owned()), expr];
+                        expr = List(init, Rc::new(Nil));
                     }
+                    return Ok(expr);
                 }
-                Err(err) => return Err(err)
+                _ => {
+                    let mut expr = self.read_atom(token)?;
+                    while let Some(m) = macros.pop() {
+                        let init = vec![Symbol(m.to_owned()), expr];
+                        expr = List(init, Rc::new(Nil));
+                    }
+                    return Ok(expr);
+                }
             }
         }
     }
@@ -158,96 +156,92 @@ impl Reader {
     }
 
     fn read_list(&mut self) -> LispResult {
-        use self::Token::*;
+        use self::Sexp::*;
+
         let mut dot = 0; // 计数 Rune('.')
         let mut found_dot = false;
         let mut macros = vec![];
         let mut stack = vec![]; // 保存未处理完的外层列表
         let mut list: Vec<Sexp> = vec![]; // 当前列表
         loop {
-            match self.next_token() {
-                Ok(token) => {
-                    match token {
-                        Quote => macros.push("quote"),
-                        Quasiquote => macros.push("quasiquote"),
-                        Unquote => macros.push("unquote"),
-                        UnquoteSplicing => macros.push("unquote-splicing"),
-                        Rune('(') => {
-                            if found_dot {
-                                found_dot = false;
-                            }
-                            stack.push(list.clone());
-                            list.clear();
-                        }
-                        Rune(')') => {
-                            let mut expr = if list.is_empty() {
-                                Sexp::Nil
-                            } else {
-                                Sexp::List(list, Rc::new(Sexp::Nil))
-                            };
+            let token = self.next_token()?;
+            match token {
+                Token::Quote => macros.push("quote"),
+                Token::Quasiquote => macros.push("quasiquote"),
+                Token::Unquote => macros.push("unquote"),
+                Token::UnquoteSplicing => macros.push("unquote-splicing"),
+                Token::Rune('(') => {
+                    if found_dot {
+                        found_dot = false;
+                    }
+                    stack.push(list.clone());
+                    list.clear();
+                }
+                Token::Rune(')') => {
+                    let mut expr = if list.is_empty() {
+                        Nil
+                    } else {
+                        List(list, Rc::new(Nil))
+                    };
 
-                            while let Some(m) = macros.pop() {
-                                let init = vec![Sexp::Symbol(m.to_owned()), expr];
-                                expr = Sexp::List(init, Rc::new(Sexp::Nil));
-                            }
+                    while let Some(m) = macros.pop() {
+                        let init = vec![Symbol(m.to_owned()), expr];
+                        expr = List(init, Rc::new(Nil));
+                    }
 
-                            if let Some(mut outer) = stack.pop() {
-                                if dot > 0 {
-                                    dot -= 1;
-                                    if expr != Sexp::Nil {
-                                        outer.push(expr);
-                                    }
-                                } else {
-                                    outer.push(expr);
-                                }
-                                list = outer;
-                            } else {
-                                return Ok(expr);
-                            }
-                        }
-                        Rune('.') => {
-                            found_dot = true;
-                            if list.is_empty() {
-                                return self.parse_error("illegal use of `.'");
-                            }
-                            dot += 1;
-                        }
-                        _ => if found_dot {
-                            found_dot = false;
+                    if let Some(mut outer) = stack.pop() {
+                        if dot > 0 {
                             dot -= 1;
-                            if self.next_token()? != Rune(')') {
-                                return self.parse_error("illegal use of `.'");
-                            }
-
-                            let last = self.read_atom(token)?;
-                            let mut expr: Sexp;
-                            if macros.is_empty() {
-                                expr = Sexp::List(list, Rc::new(last));
-                            } else {
-                                while let Some(m) = macros.pop() {
-                                    list.push(Sexp::Symbol(m.to_owned()));
-                                }
-                                list.push(last);
-                                expr = Sexp::List(list, Rc::new(Sexp::Nil));
-                            }
-
-                            if let Some(mut outer) = stack.pop() {
+                            if expr != Nil {
                                 outer.push(expr);
-                                list = outer;
-                            } else {
-                                return Ok(expr);
                             }
                         } else {
-                            let mut expr = self.read_atom(token)?;
-                            while let Some(m) = macros.pop() {
-                                let init = vec![Sexp::Symbol(m.to_owned()), expr];
-                                expr = Sexp::List(init, Rc::new(Sexp::Nil));
-                            }
-                            list.push(expr)
-                        },
+                            outer.push(expr);
+                        }
+                        list = outer;
+                    } else {
+                        return Ok(expr);
                     }
                 }
-                Err(err) => return Err(err)
+                Token::Rune('.') => {
+                    found_dot = true;
+                    if list.is_empty() {
+                        return self.parse_error("illegal use of `.'");
+                    }
+                    dot += 1;
+                }
+                _ => if found_dot {
+                    found_dot = false;
+                    dot -= 1;
+                    if self.next_token()? != Token::Rune(')') {
+                        return self.parse_error("illegal use of `.'");
+                    }
+
+                    let last = self.read_atom(token)?;
+                    let expr = if macros.is_empty() {
+                        List(list, Rc::new(last))
+                    } else {
+                        while let Some(m) = macros.pop() {
+                            list.push(Symbol(m.to_owned()));
+                        }
+                        list.push(last);
+                        List(list, Rc::new(Nil))
+                    };
+
+                    if let Some(mut outer) = stack.pop() {
+                        outer.push(expr);
+                        list = outer;
+                    } else {
+                        return Ok(expr);
+                    }
+                } else {
+                    let mut expr = self.read_atom(token)?;
+                    while let Some(m) = macros.pop() {
+                        let init = vec![Symbol(m.to_owned()), expr];
+                        expr = List(init, Rc::new(Nil));
+                    }
+                    list.push(expr)
+                }
             }
         }
     }
