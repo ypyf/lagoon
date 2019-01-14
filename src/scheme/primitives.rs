@@ -3,7 +3,6 @@ use scheme::types::LispError::*;
 use scheme::types::LispResult;
 use scheme::types::Sexp;
 
-use std::rc::Rc;
 use std::process::exit;
 
 pub fn plus(_context: &mut Context, args: Vec<Sexp>) -> LispResult {
@@ -15,7 +14,7 @@ pub fn plus(_context: &mut Context, args: Vec<Sexp>) -> LispResult {
         }
     }
     let sum: i64 = vals.iter().fold(0, |acc, &x| acc + x);
-    Ok(Rc::new(Sexp::Number(sum)))
+    Ok(Sexp::Number(sum))
 }
 
 pub fn subtract(_context: &mut Context, args: Vec<Sexp>) -> LispResult {
@@ -33,13 +32,13 @@ pub fn subtract(_context: &mut Context, args: Vec<Sexp>) -> LispResult {
     }
 
     if arity == 1 {
-        Ok(Rc::new(Sexp::Number(-vals[0])))
+        Ok(Sexp::Number(-vals[0]))
     } else {
         let mut acc = vals[0];
         for x in &vals[1..] {
             acc -= *x
         }
-        Ok(Rc::new(Sexp::Number(acc)))
+        Ok(Sexp::Number(acc))
     }
 }
 
@@ -52,7 +51,7 @@ pub fn multiply(_context: &mut Context, args: Vec<Sexp>) -> LispResult {
         }
     }
     let sum: i64 = vals.iter().fold(1, |acc, &x| acc * x);
-    Ok(Rc::new(Sexp::Number(sum)))
+    Ok(Sexp::Number(sum))
 }
 
 pub fn quit(_context: &mut Context, args: Vec<Sexp>) -> LispResult {
@@ -85,7 +84,7 @@ pub fn define(context: &mut Context, exprs: Vec<Sexp>) -> LispResult {
             } else {
                 let val = context.eval(&exprs[1])?;
                 context.define_variable(sym, val.clone());
-                Ok(Rc::new(Sexp::Void))
+                Ok(Sexp::Void)
             }
         }
         _ => Err(BadSyntax("define".to_owned(), String::new())),
@@ -105,16 +104,9 @@ pub fn quote(_context: &mut Context, exprs: Vec<Sexp>) -> LispResult {
     if arity != 1 {
         return Err(BadSyntax("quote".to_owned(), "bad syntax".to_owned()));
     }
-    Ok(Rc::new(exprs[0].clone()))
+    Ok(exprs[0].clone())
 }
 
-//Closure {
-//name: String,
-//params: Vec<String>,
-//vararg: Option<String>,
-//body: Vec<Sexp>,
-//env: Env,
-//}
 pub fn lambda(context: &mut Context, exprs: Vec<Sexp>) -> LispResult {
     use scheme::types::Sexp::*;
 
@@ -126,13 +118,13 @@ pub fn lambda(context: &mut Context, exprs: Vec<Sexp>) -> LispResult {
     }
     match exprs[0] {
         Symbol(ref sym) => {
-            Ok(Rc::new(Closure {
+            Ok(Closure {
                 name: String::new(),
                 params: vec![],
                 vararg: Some(sym.clone()),
                 body: exprs[1..].to_vec(),
                 env: context.get_env().clone(),
-            }))
+            })
         }
         _ => Err(NotImplemented("lambda".to_owned()))
     }

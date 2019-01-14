@@ -37,9 +37,9 @@ impl Interpreter {
         loop {
             match lisp_reader.read() {
                 Ok(sexp) => {
-                    let result = self.context.eval(&*sexp);
+                    let result = self.context.eval(&sexp);
                     match result {
-                        Ok(val) => match *val {
+                        Ok(val) => match val {
                             Sexp::Void => (),
                             _ => println!("{}", val),
                         },
@@ -61,9 +61,9 @@ impl Interpreter {
         loop {
             match lisp_reader.read() {
                 Ok(sexp) => {
-                    let result = self.context.eval(&*sexp);
+                    let result = self.context.eval(&sexp);
                     match result {
-                        Ok(val) => match *val {
+                        Ok(val) => match val {
                             Sexp::Void => (),
                             _ => println!("{}", val),
                         },

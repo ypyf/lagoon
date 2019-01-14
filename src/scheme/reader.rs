@@ -125,16 +125,16 @@ impl Reader {
                         Token::Rune('(') => {
                             let mut expr = self.read_list()?;
                             while let Some(m) = macros.pop() {
-                                let init = vec![Rc::new(Sexp::Symbol(m.to_owned())), expr];
-                                expr = Rc::new(Sexp::List(init, Rc::new(Sexp::Nil)));
+                                let init = vec![Sexp::Symbol(m.to_owned()), expr];
+                                expr = Sexp::List(init, Rc::new(Sexp::Nil));
                             }
                             return Ok(expr);
                         }
                         _ => {
                             let mut expr = self.read_atom(token)?;
                             while let Some(m) = macros.pop() {
-                                let init = vec![Rc::new(Sexp::Symbol(m.to_owned())), expr];
-                                expr = Rc::new(Sexp::List(init, Rc::new(Sexp::Nil)));
+                                let init = vec![Sexp::Symbol(m.to_owned()), expr];
+                                expr = Sexp::List(init, Rc::new(Sexp::Nil));
                             }
                             return Ok(expr);
                         }
@@ -148,9 +148,9 @@ impl Reader {
     fn read_atom(&mut self, token: Token) -> LispResult {
         match token {
             Token::Number(lex) => self.parse_number(lex.as_str()),
-            Token::Str(lex) => Ok(Rc::new(Sexp::Str(lex))),
-            Token::Char(lex) => Ok(Rc::new(Sexp::Char(lex))),
-            Token::Symbol(lex) => Ok(Rc::new(Sexp::Symbol(lex))),
+            Token::Str(lex) => Ok(Sexp::Str(lex)),
+            Token::Char(lex) => Ok(Sexp::Char(lex)),
+            Token::Symbol(lex) => Ok(Sexp::Symbol(lex)),
             Token::Pound(lex) => self.parse_pound(lex.as_str()),
             Token::Rune('.') => self.parse_error("illegal use of `.'"),
             _ => self.parse_error(format!("unexpected `{}'", token).as_str()),
@@ -163,7 +163,7 @@ impl Reader {
         let mut found_dot = false;
         let mut macros = vec![];
         let mut stack = vec![]; // 保存未处理完的外层列表
-        let mut list: Vec<Rc<Sexp>> = vec![]; // 当前列表
+        let mut list: Vec<Sexp> = vec![]; // 当前列表
         loop {
             match self.next_token() {
                 Ok(token) => {
@@ -181,20 +181,20 @@ impl Reader {
                         }
                         Rune(')') => {
                             let mut expr = if list.is_empty() {
-                                Rc::new(Sexp::Nil)
+                                Sexp::Nil
                             } else {
-                                Rc::new(Sexp::List(list, Rc::new(Sexp::Nil)))
+                                Sexp::List(list, Rc::new(Sexp::Nil))
                             };
 
                             while let Some(m) = macros.pop() {
-                                let init = vec![Rc::new(Sexp::Symbol(m.to_owned())), expr];
-                                expr = Rc::new(Sexp::List(init, Rc::new(Sexp::Nil)));
+                                let init = vec![Sexp::Symbol(m.to_owned()), expr];
+                                expr = Sexp::List(init, Rc::new(Sexp::Nil));
                             }
 
                             if let Some(mut outer) = stack.pop() {
                                 if dot > 0 {
                                     dot -= 1;
-                                    if *expr != Sexp::Nil {
+                                    if expr != Sexp::Nil {
                                         outer.push(expr);
                                     }
                                 } else {
@@ -222,26 +222,26 @@ impl Reader {
                             let last = self.read_atom(token)?;
                             let mut expr: Sexp;
                             if macros.is_empty() {
-                                expr = Sexp::List(list, last);
+                                expr = Sexp::List(list, Rc::new(last));
                             } else {
                                 while let Some(m) = macros.pop() {
-                                    list.push(Rc::new(Sexp::Symbol(m.to_owned())));
+                                    list.push(Sexp::Symbol(m.to_owned()));
                                 }
                                 list.push(last);
                                 expr = Sexp::List(list, Rc::new(Sexp::Nil));
                             }
 
                             if let Some(mut outer) = stack.pop() {
-                                outer.push(Rc::new(expr));
+                                outer.push(expr);
                                 list = outer;
                             } else {
-                                return Ok(Rc::new(expr));
+                                return Ok(expr);
                             }
                         } else {
                             let mut expr = self.read_atom(token)?;
                             while let Some(m) = macros.pop() {
-                                let init = vec![Rc::new(Sexp::Symbol(m.to_owned())), expr];
-                                expr = Rc::new(Sexp::List(init, Rc::new(Sexp::Nil)));
+                                let init = vec![Sexp::Symbol(m.to_owned()), expr];
+                                expr = Sexp::List(init, Rc::new(Sexp::Nil));
                             }
                             list.push(expr)
                         },
@@ -403,7 +403,7 @@ impl Reader {
     // TODO 大整数
     fn parse_number(&mut self, lex: &str) -> LispResult {
         match lex.parse::<i64>() {
-            Ok(n) => Ok(Rc::new(Sexp::Number(n))),
+            Ok(n) => Ok(Sexp::Number(n)),
             Err(err) => self.parse_error(err.description()),
         }
     }
@@ -411,8 +411,8 @@ impl Reader {
     // See also https://www.gnu.org/software/mit-scheme/documentation/mit-scheme-ref/Additional-Notations.html
     fn parse_pound(&mut self, lex: &str) -> LispResult {
         match lex {
-            "t" => Ok(Rc::new(Sexp::True)),
-            "f" => Ok(Rc::new(Sexp::False)),
+            "t" => Ok(Sexp::True),
+            "f" => Ok(Sexp::False),
             // "i" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 非精确数前缀
             // "e" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 精确数前缀
             // "d" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 10进制数码前缀

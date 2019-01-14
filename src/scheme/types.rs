@@ -5,9 +5,9 @@ use std::fmt;
 use std::rc::Rc;
 use std::str;
 
-pub type LispResult = Result<Rc<Sexp>, LispError>;
+pub type LispResult = Result<Sexp, LispError>;
 
-type Env = LinkedList<HashMap<String, Rc<Sexp>>>;
+type Env = LinkedList<HashMap<String, Sexp>>;
 
 pub struct Context {
     env: Env,
@@ -31,7 +31,7 @@ impl Context {
         self.env.pop_back();
     }
 
-    pub fn define_variable(&mut self, name: &str, sexp: Rc<Sexp>) {
+    pub fn define_variable(&mut self, name: &str, sexp: Sexp) {
         let current = self.env.back_mut().unwrap();
         current.insert(name.to_owned(), sexp);
     }
@@ -40,11 +40,11 @@ impl Context {
         let current = self.env.back_mut().unwrap();
         current.insert(
             name.to_owned(),
-            Rc::new(Sexp::Function {
+            Sexp::Function {
                 name: name.to_owned(),
                 special: true,
                 func,
-            }),
+            },
         );
     }
 
@@ -52,15 +52,15 @@ impl Context {
         let current = self.env.back_mut().unwrap();
         current.insert(
             name.to_owned(),
-            Rc::new(Sexp::Function {
+            Sexp::Function {
                 name: name.to_owned(),
                 special: false,
                 func,
-            }),
+            },
         );
     }
 
-    pub fn lookup(&self, name: &str) -> Option<Rc<Sexp>> {
+    pub fn lookup(&self, name: &str) -> Option<Sexp> {
         for current in &self.env {
             match current.get(name) {
                 Some(val) => return Some(val.clone()),
@@ -79,26 +79,26 @@ impl Context {
                 Some(val) => Ok(val.clone()),
                 None => Err(Undefined(sym.clone())),
             },
-            List(ref v, ref t) => {
+            List(v, t) => {
                 if v.is_empty() {
                     return Err(ApplyError("missing procedure expression".to_owned()));
                 }
-                let proc = self.eval(&*v[0])?;
+                let proc = self.eval(&v[0])?;
                 let mut args = v[1..].to_vec();
-                args.push(t.clone());
-                self.apply(proc, args)
+                args.push((**t).clone());
+                self.apply(&proc, args)
             }
-            _ => Ok(Rc::new(expr.clone())), // 其它表达式求值到其本身
+            _ => Ok(expr.clone()), // 其它表达式求值到其本身
         }
     }
 
-    fn apply(&mut self, proc: Rc<Sexp>, exprs: Vec<Rc<Sexp>>) -> LispResult {
+    fn apply(&mut self, proc: &Sexp, exprs: Vec<Sexp>) -> LispResult {
         use self::Sexp::*;
         use self::LispError::*;
 
         match *proc {
             Function { name: _, special, func } => {
-                let mut args: Vec<Sexp> = exprs.iter().map(|x| (**x).clone()).collect();
+                let mut args = exprs;
                 if special {
                     if *args.last().unwrap() == Sexp::Nil {
                         args.pop();
@@ -112,7 +112,7 @@ impl Context {
                     let mut vals = Vec::with_capacity(args.len());
                     for arg in args {
                         let val = self.eval(&arg)?;
-                        vals.push((*val).clone());
+                        vals.push(val);
                     }
                     func(self, vals)
                 }
@@ -134,7 +134,7 @@ pub enum Sexp {
     False,
     Number(i64),
     Symbol(String),
-    List(Vec<Rc<Sexp>>, Rc<Sexp>),
+    List(Vec<Sexp>, Rc<Sexp>),
     Function {
         name: String,
         special: bool,
