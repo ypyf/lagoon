@@ -8,7 +8,7 @@ use scheme::types::Sexp;
 
 use std::error::Error;
 use std::fmt;
-use std::path::{PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::str;
 
@@ -16,7 +16,6 @@ use self::regex::Regex;
 use self::rustyline::error::ReadlineError;
 use self::rustyline::Editor;
 use self::rustyline::config::Configurer;
-use std::fs::File;
 
 #[derive(Debug, PartialEq)]
 enum Token {
@@ -160,7 +159,8 @@ impl Reader {
 
     fn read_list(&mut self) -> LispResult {
         use self::Token::*;
-        let mut dot = false;
+        let mut dot = 0; // 计数 Rune('.')
+        let mut found_dot = false;
         let mut macros = vec![];
         let mut stack = vec![]; // 保存未处理完的外层列表
         let mut list: Vec<Rc<Sexp>> = vec![]; // 当前列表
@@ -173,30 +173,48 @@ impl Reader {
                         Unquote => macros.push("unquote"),
                         UnquoteSplicing => macros.push("unquote-splicing"),
                         Rune('(') => {
+                            if found_dot {
+                                found_dot = false;
+                            }
                             stack.push(list.clone());
                             list.clear();
                         }
                         Rune(')') => {
-                            let mut expr = Rc::new(Sexp::List(list, Rc::new(Sexp::Nil)));
+                            let mut expr = if list.is_empty() {
+                                Rc::new(Sexp::Nil)
+                            } else {
+                                Rc::new(Sexp::List(list, Rc::new(Sexp::Nil)))
+                            };
+
                             while let Some(m) = macros.pop() {
                                 let init = vec![Rc::new(Sexp::Symbol(m.to_owned())), expr];
                                 expr = Rc::new(Sexp::List(init, Rc::new(Sexp::Nil)));
                             }
+
                             if let Some(mut outer) = stack.pop() {
-                                outer.push(expr);
+                                if dot > 0 {
+                                    dot -= 1;
+                                    if *expr != Sexp::Nil {
+                                        outer.push(expr);
+                                    }
+                                } else {
+                                    outer.push(expr);
+                                }
                                 list = outer;
                             } else {
                                 return Ok(expr);
                             }
                         }
                         Rune('.') => {
+                            found_dot = true;
                             if list.is_empty() {
                                 return self.parse_error("illegal use of `.'");
                             }
-                            dot = true;
+                            dot += 1;
                         }
-                        _ => if dot {
-                            dot = false;
+                        _ => if found_dot {
+                            found_dot = false;
+                            dot -= 1;
                             if self.next_token()? != Rune(')') {
                                 return self.parse_error("illegal use of `.'");
                             }
@@ -211,7 +229,6 @@ impl Reader {
                                 }
                                 list.push(last);
                                 expr = Sexp::List(list, Rc::new(Sexp::Nil));
-                                ;
                             }
 
                             if let Some(mut outer) = stack.pop() {
@@ -409,7 +426,7 @@ impl Reader {
     fn parse_error<T>(&mut self, err: &str) -> Result<T, LispError> {
         self.scope = 0;
         self.string = false;
-        Err(LispError::BadSyntax("read".to_owned(), err.to_owned()))
+        Err(LispError::BadSyntax("read".to_owned(), format!("bad syntax {}", err)))
     }
 }
 

@@ -19,6 +19,10 @@ impl Context {
         Context { env: Env::new() }
     }
 
+    pub fn get_env(&self) -> &Env {
+        &self.env
+    }
+
     pub fn enter_scope(&mut self) {
         self.env.push_back(HashMap::new())
     }
@@ -56,73 +60,74 @@ impl Context {
         );
     }
 
-    pub fn lookup(&self, name: &str) -> Option<&Sexp> {
+    pub fn lookup(&self, name: &str) -> Option<Rc<Sexp>> {
         for current in &self.env {
             match current.get(name) {
-                Some(val) => return Some(val),
+                Some(val) => return Some(val.clone()),
                 None => continue,
             }
         }
         None
     }
 
-    pub fn eval<'s>(&mut self, expr: Rc<Sexp>) -> LispResult {
-        use self::LispError::*;
+    pub fn eval(&mut self, expr: &Sexp) -> LispResult {
         use self::Sexp::*;
+        use self::LispError::*;
 
-        match *expr {
+        match expr {
             Symbol(ref sym) => match self.lookup(sym.as_str()) {
-                Some(val) => Ok(Rc::new(val.clone())),
+                Some(val) => Ok(val.clone()),
                 None => Err(Undefined(sym.clone())),
             },
             List(ref v, ref t) => {
                 if v.is_empty() {
                     return Err(ApplyError("missing procedure expression".to_owned()));
                 }
-                let first = self.eval(v[0].clone())?;
-                match *first {
-                    Function {
-                        name: _,
-                        special,
-                        func,
-                    } => self.apply(func, special, &v[1..], &t),
-                    _ => Err(ApplyError("not a procedure".to_owned())),
-                }
+                let proc = self.eval(&*v[0])?;
+                let mut args = v[1..].to_vec();
+                args.push(t.clone());
+                self.apply(proc, args)
             }
-            _ => Ok(expr), // 其它表达式求值到其本身
+            _ => Ok(Rc::new(expr.clone())), // 其它表达式求值到其本身
         }
     }
 
-    fn apply(
-        &mut self,
-        func: Function,
-        special: bool,
-        exprs: &[Rc<Sexp>],
-        last: &Sexp,
-    ) -> LispResult {
-        if special {
-            func(self, exprs)
-        } else {
-            if *last != Sexp::Nil {
-                return Err(LispError::BadSyntax("apply".to_owned(), "".to_owned()));
+    fn apply(&mut self, proc: Rc<Sexp>, exprs: Vec<Rc<Sexp>>) -> LispResult {
+        use self::Sexp::*;
+        use self::LispError::*;
+
+        match *proc {
+            Function { name: _, special, func } => {
+                let mut args: Vec<Sexp> = exprs.iter().map(|x| (**x).clone()).collect();
+                if special {
+                    if *args.last().unwrap() == Sexp::Nil {
+                        args.pop();
+                    }
+                    func(self, args)
+                } else {
+                    if *args.last().unwrap() != Sexp::Nil {
+                        return Err(LispError::BadSyntax("apply".to_owned(), "bad syntax".to_owned()));
+                    }
+                    args.pop();
+                    let mut vals = Vec::with_capacity(args.len());
+                    for arg in args {
+                        let val = self.eval(&arg)?;
+                        vals.push((*val).clone());
+                    }
+                    func(self, vals)
+                }
             }
-            let mut args: Vec<Rc<Sexp>> = Vec::with_capacity(exprs.len());
-            for expr in exprs {
-                args.push(self.eval(expr.clone())?)
-            }
-            func(self, &args)
+            _ => Err(ApplyError("not a procedure".to_owned())),
         }
     }
 }
 
-pub type Function = fn(&mut Context, &[Rc<Sexp>]) -> LispResult;
+pub type Function = fn(&mut Context, Vec<Sexp>) -> LispResult;
 
-#[allow(dead_code)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum Sexp {
     Void,
     Nil,
-    // ()
     Char(char),
     Str(String),
     True,
@@ -192,7 +197,7 @@ impl<'a> fmt::Display for Sexp {
             Char(n) => write!(f, "#\\{}", char_to_name(*n)),
             Str(n) => write!(f, "{:?}", n), // 字符串输出时显示双引号
             Function { name, .. } => write!(f, "#<procedure:{}>", name),
-            Closure { name, .. } => write!(f, "#<procedure:{}>", name),
+            Closure { .. } => write!(f, "#<procedure>"),
             List(exprs, tail) => {
                 let mut datum = String::with_capacity(exprs.len() + 2);
                 datum.push('(');
@@ -232,7 +237,7 @@ impl fmt::Display for LispError {
         match self {
             EndOfInput => write!(f, ""),
             Interrupted => write!(f, "User interrupt"),
-            BadSyntax(sym, err) => write!(f, "{}: bad syntax {}", sym, err),
+            BadSyntax(sym, err) => write!(f, "{}: {}", sym, err),
             Undefined(sym) => write!(
                 f,
                 "{}: undefined;\n cannot reference undefined identifier",

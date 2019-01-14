@@ -27,6 +27,7 @@ impl Interpreter {
         self.context.define_synatx("define", primitives::define);
         self.context.define_synatx("set!", primitives::assign);
         self.context.define_synatx("quote", primitives::quote);
+        self.context.define_synatx("lambda", primitives::lambda);
     }
 
     pub fn run_repl(&mut self) {
@@ -36,7 +37,7 @@ impl Interpreter {
         loop {
             match lisp_reader.read() {
                 Ok(sexp) => {
-                    let result = self.context.eval(sexp);
+                    let result = self.context.eval(&*sexp);
                     match result {
                         Ok(val) => match *val {
                             Sexp::Void => (),
@@ -60,7 +61,7 @@ impl Interpreter {
         loop {
             match lisp_reader.read() {
                 Ok(sexp) => {
-                    let result = self.context.eval(sexp);
+                    let result = self.context.eval(&*sexp);
                     match result {
                         Ok(val) => match *val {
                             Sexp::Void => (),
