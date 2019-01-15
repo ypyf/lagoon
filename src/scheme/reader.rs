@@ -56,6 +56,7 @@ pub struct Reader<'a> {
     re_char: Regex,
     re_symbol: Regex,
     re_dots: Regex,
+    use_stdin: bool,
     readline: Editor<()>,
     ps1: &'a str,
     ps2: &'a str,
@@ -100,6 +101,7 @@ impl<'a> Reader<'a> {
             re_number: Regex::new(r"^[-+]?\d+").unwrap(),
             re_symbol: Regex::new(r"^[^.#;'`,\s()][^#;'`,\s()]*").unwrap(),
             re_dots: Regex::new(r"^\.{2,}").unwrap(),
+            use_stdin: false,
             ps1: "scheme> ",
             ps2: "",
             scope: 0,
@@ -114,6 +116,10 @@ impl<'a> Reader<'a> {
     pub fn set_prompt(&mut self, ps1: &'a str, ps2: &'a str) {
         self.ps1 = ps1;
         self.ps2 = ps2;
+    }
+
+    pub fn set_stdio(&mut self, flag:bool) {
+        self.use_stdin = flag;
     }
 
     pub fn read(&mut self) -> LispResult {
@@ -182,7 +188,7 @@ impl<'a> Reader<'a> {
                     dot_count = dot_stack.pop().unwrap();
                 }
                 Token::Rune('.') => {
-                    if list_level == 0 || self.lookahead()? == Token::Rune(')') {
+                    if list_level == 0 || dot_count > 0 || self.lookahead()? == Token::Rune(')') {
                         return self.parse_error("illegal use of `.'");
                     }
                     dot_count += 1
