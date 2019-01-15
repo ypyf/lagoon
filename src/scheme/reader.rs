@@ -55,7 +55,7 @@ pub struct Reader<'a> {
     re_string: Regex,
     re_char: Regex,
     re_symbol: Regex,
-    re_dots: Regex,
+//    re_dots: Regex,
     use_stdin: bool,
     readline: Editor<()>,
     ps1: &'a str,
@@ -99,8 +99,8 @@ impl<'a> Reader<'a> {
             re_string: Regex::new(r#"^"((\\.|[^"])*)""#).unwrap(),
             re_char: Regex::new(r"^#\\([[:alpha:]]+|.)").unwrap(), // 不包含\n
             re_number: Regex::new(r"^[-+]?\d+").unwrap(),
-            re_symbol: Regex::new(r"^[^.#;'`,\s()][^#;'`,\s()]*").unwrap(),
-            re_dots: Regex::new(r"^\.{2,}").unwrap(),
+            re_symbol: Regex::new(r"^[^#;'`,\s()][^#;'`,\s()]*").unwrap(),
+//            re_dots: Regex::new(r"^\.{2,}").unwrap(),
             use_stdin: false,
             ps1: "scheme> ",
             ps2: "",
@@ -337,12 +337,11 @@ impl<'a> Reader<'a> {
 
         for cap in self.re_symbol.captures_iter(&line) {
             self.line = self.line.replacen(&cap[0], "", 1);
-            return Ok(Symbol(cap[0].to_lowercase()));
-        }
-
-        for cap in self.re_dots.captures_iter(&line) {
-            self.line = self.line.replacen(&cap[0], "", 1);
-            return Ok(Symbol(cap[0].to_owned()));
+            return if &cap[0] == "." {
+                Ok(Rune('.'))
+            } else {
+                Ok(Symbol(cap[0].to_lowercase()))
+            };
         }
 
         if line.starts_with(",@") {
