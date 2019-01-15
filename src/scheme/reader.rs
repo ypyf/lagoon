@@ -236,7 +236,7 @@ impl<'a> Reader<'a> {
     fn read_line(&mut self, continue_read: bool) -> Result<String, LispError> {
         let mut line = Reader::skip_whitespace(&self.line);
         while line.is_empty() {
-            let prompt = if self.scope == 0 && !continue_read & &!self.string {
+            let prompt = if self.scope == 0 && !continue_read && !self.string {
                 &self.ps1
             } else {
                 &self.ps2
