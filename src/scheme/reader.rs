@@ -17,7 +17,7 @@ use self::rustyline::error::ReadlineError;
 use self::rustyline::Editor;
 use self::rustyline::config::Configurer;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 enum Token {
     Quote,
     Quasiquote,
@@ -50,25 +50,29 @@ impl fmt::Display for Token {
     }
 }
 
-pub struct Reader {
+pub struct Reader<'a> {
     re_number: Regex,
     re_string: Regex,
     re_char: Regex,
     re_symbol: Regex,
+    re_dots: Regex,
     readline: Editor<()>,
-    ps1: String,
-    ps2: String,
+    ps1: &'a str,
+    ps2: &'a str,
     // 嵌套深度
     scope: isize,
+    // 偷看
+    lookahead: Option<Token>,
     // 字符串内部
     string: bool,
     // 当前行
     line: String,
     // 历史文件路径
     history: PathBuf,
+
 }
 
-impl Iterator for Reader {
+impl Iterator for Reader<'_> {
     type Item = LispResult;
     fn next(&mut self) -> Option<Self::Item> {
         match self.read() {
@@ -79,7 +83,7 @@ impl Iterator for Reader {
 }
 
 #[allow(dead_code)]
-impl Reader {
+impl<'a> Reader<'a> {
     pub fn new() -> Self {
         let mut rl = Editor::<()>::new();
         let home_dir = dirs::home_dir().unwrap();
@@ -95,9 +99,11 @@ impl Reader {
             re_char: Regex::new(r"^#\\([[:alpha:]]+|.)").unwrap(), // 不包含\n
             re_number: Regex::new(r"^[-+]?\d+").unwrap(),
             re_symbol: Regex::new(r"^[^.#;'`,\s()][^#;'`,\s()]*").unwrap(),
-            ps1: "r5rs> ".to_owned(),
-            ps2: "... ".to_owned(),
+            re_dots: Regex::new(r"^\.{2,}").unwrap(),
+            ps1: "scheme> ",
+            ps2: "",
             scope: 0,
+            lookahead: None,
             string: false,
             readline: rl,
             line: String::new(),
@@ -105,9 +111,9 @@ impl Reader {
         }
     }
 
-    pub fn set_prompt(&mut self, ps1: &str, ps2: &str) {
-        self.ps1 = ps1.to_owned();
-        self.ps2 = ps2.to_owned();
+    pub fn set_prompt(&mut self, ps1: &'a str, ps2: &'a str) {
+        self.ps1 = ps1;
+        self.ps2 = ps2;
     }
 
     pub fn read(&mut self) -> LispResult {
@@ -115,32 +121,95 @@ impl Reader {
 
         self.scope = 0;
         self.string = false;
+
+        let mut list_level = 0;
+        let mut dot_count = 0;  // 当前列表中的dot个数
+        let mut dot_stack = vec![];
+        let mut current_exprs = vec![]; // 保存当前列表中的表达式
+        let mut list_stack = vec![];
         let mut macros = vec![];
+        let mut macro_stack = vec![];
+
         loop {
             let token = self.next_token()?;
             match token {
-                Token::Quote => macros.push("quote"),
-                Token::Quasiquote => macros.push("quasiquote"),
-                Token::Unquote => macros.push("unquote"),
-                Token::UnquoteSplicing => macros.push("unquote-splicing"),
+                Token::Quote => macros.push(Symbol("quote".to_owned())),
+                Token::Quasiquote => macros.push(Symbol("quasiquote".to_owned())),
+                Token::Unquote => macros.push(Symbol("unquote".to_owned())),
+                Token::UnquoteSplicing => macros.push(Symbol("unquote-splicing".to_owned())),
                 Token::Rune('(') => {
-                    let mut expr = self.read_list()?;
-                    while let Some(m) = macros.pop() {
-                        let init = vec![Symbol(m.to_owned()), expr];
-                        expr = List(init, Rc::new(Nil));
+                    if list_level > 0 {
+                        dot_stack.push(dot_count);
+                        dot_count = 0;
+                        list_stack.push(current_exprs.clone());
+                        current_exprs.clear();
                     }
-                    return Ok(expr);
+                    macro_stack.push(macros.clone());
+                    macros.clear();
+                    list_level += 1;
+                }
+                Token::Rune(')') => {
+                    if list_level == 0 {
+                        return self.parse_error(format!("unexpected `{}'", token).as_str());
+                    }
+                    list_level -= 1;
+
+                    if let Some(m) = macro_stack.pop() {
+                        macros = m;
+                    }
+
+                    let list = if current_exprs.is_empty() {
+                        Nil
+                    } else if dot_count > 0 {
+                        let last = current_exprs.pop().unwrap();
+                        // (. x) => x
+                        if current_exprs.is_empty() {
+                            last
+                        } else {
+                            List(current_exprs, Rc::new(last))
+                        }
+                    } else {
+                        List(current_exprs, Rc::new(Nil))
+                    };
+
+                    if list_stack.is_empty() {
+                        return Ok(Reader::expand_macro(&mut macros, &list));
+                    }
+
+                    let mut outer = list_stack.pop().unwrap();
+                    outer.push(Reader::expand_macro(&mut macros, &list));
+                    current_exprs = outer;
+                    dot_count = dot_stack.pop().unwrap();
+                }
+                Token::Rune('.') => {
+                    if list_level == 0 || self.lookahead()? == Token::Rune(')') {
+                        return self.parse_error("illegal use of `.'");
+                    }
+                    dot_count += 1
                 }
                 _ => {
-                    let mut expr = self.read_atom(token)?;
-                    while let Some(m) = macros.pop() {
-                        let init = vec![Symbol(m.to_owned()), expr];
-                        expr = List(init, Rc::new(Nil));
+                    if dot_count > 0 && self.lookahead()? != Token::Rune(')') {
+                        return self.parse_error("illegal use of `.'");
                     }
-                    return Ok(expr);
+                    let expr = self.read_atom(token)?;
+                    if list_level == 0 {
+                        return Ok(Reader::expand_macro(&mut macros, &expr));
+                    }
+                    current_exprs.push(Reader::expand_macro(&mut macros, &expr));
                 }
             }
         }
+    }
+
+    // Expands reader macros
+    fn expand_macro(macros: &mut Vec<Sexp>, inner: &Sexp) -> Sexp {
+        use self::Sexp::*;
+        let mut expr = inner.clone();
+        while let Some(m) = macros.pop() {
+            let init = vec![m, expr];
+            expr = List(init, Rc::new(Nil));
+        }
+        expr
     }
 
     fn read_atom(&mut self, token: Token) -> LispResult {
@@ -150,104 +219,12 @@ impl Reader {
             Token::Char(lex) => Ok(Sexp::Char(lex)),
             Token::Symbol(lex) => Ok(Sexp::Symbol(lex)),
             Token::Pound(lex) => self.parse_pound(lex.as_str()),
-            Token::Rune('.') => self.parse_error("illegal use of `.'"),
             _ => self.parse_error(format!("unexpected `{}'", token).as_str()),
         }
     }
 
-    fn read_list(&mut self) -> LispResult {
-        use self::Sexp::*;
-
-        let mut dot = 0; // 计数 Rune('.')
-        let mut found_dot = false;
-        let mut macros = vec![];
-        let mut stack = vec![]; // 保存未处理完的外层列表
-        let mut list: Vec<Sexp> = vec![]; // 当前列表
-        loop {
-            let token = self.next_token()?;
-            match token {
-                Token::Quote => macros.push("quote"),
-                Token::Quasiquote => macros.push("quasiquote"),
-                Token::Unquote => macros.push("unquote"),
-                Token::UnquoteSplicing => macros.push("unquote-splicing"),
-                Token::Rune('(') => {
-                    if found_dot {
-                        found_dot = false;
-                    }
-                    stack.push(list.clone());
-                    list.clear();
-                }
-                Token::Rune(')') => {
-                    let mut expr = if list.is_empty() {
-                        Nil
-                    } else {
-                        List(list, Rc::new(Nil))
-                    };
-
-                    while let Some(m) = macros.pop() {
-                        let init = vec![Symbol(m.to_owned()), expr];
-                        expr = List(init, Rc::new(Nil));
-                    }
-
-                    if let Some(mut outer) = stack.pop() {
-                        if dot > 0 {
-                            dot -= 1;
-                            if expr != Nil {
-                                outer.push(expr);
-                            }
-                        } else {
-                            outer.push(expr);
-                        }
-                        list = outer;
-                    } else {
-                        return Ok(expr);
-                    }
-                }
-                Token::Rune('.') => {
-                    found_dot = true;
-                    if list.is_empty() {
-                        return self.parse_error("illegal use of `.'");
-                    }
-                    dot += 1;
-                }
-                _ => if found_dot {
-                    found_dot = false;
-                    dot -= 1;
-                    if self.next_token()? != Token::Rune(')') {
-                        return self.parse_error("illegal use of `.'");
-                    }
-
-                    let last = self.read_atom(token)?;
-                    let expr = if macros.is_empty() {
-                        List(list, Rc::new(last))
-                    } else {
-                        while let Some(m) = macros.pop() {
-                            list.push(Symbol(m.to_owned()));
-                        }
-                        list.push(last);
-                        List(list, Rc::new(Nil))
-                    };
-
-                    if let Some(mut outer) = stack.pop() {
-                        outer.push(expr);
-                        list = outer;
-                    } else {
-                        return Ok(expr);
-                    }
-                } else {
-                    let mut expr = self.read_atom(token)?;
-                    while let Some(m) = macros.pop() {
-                        let init = vec![Symbol(m.to_owned()), expr];
-                        expr = List(init, Rc::new(Nil));
-                    }
-                    list.push(expr)
-                }
-            }
-        }
-    }
-
     // 忽略空白和注释
-    fn skip_whitespace(line: &String) -> String {
+    fn skip_whitespace(line: &str) -> String {
         let x = line.trim_start();
         if x.starts_with(';') {
             return "".to_owned();
@@ -259,7 +236,7 @@ impl Reader {
     fn read_line(&mut self, continue_read: bool) -> Result<String, LispError> {
         let mut line = Reader::skip_whitespace(&self.line);
         while line.is_empty() {
-            let prompt = if self.scope == 0 && !continue_read && !self.string {
+            let prompt = if self.scope == 0 && !continue_read & &!self.string {
                 &self.ps1
             } else {
                 &self.ps2
@@ -267,15 +244,14 @@ impl Reader {
             match self.readline.readline(prompt) {
                 Ok(input) => {
                     line = input;
+                    line.push('\n');
                     if !self.string {
                         line = Reader::skip_whitespace(&line);
-                    } else {
-                        line.push('\n');
                     }
                 }
                 Err(ReadlineError::Interrupted) => return Err(LispError::Interrupted),
                 Err(ReadlineError::Eof) => return Err(LispError::EndOfInput),
-                // FIXME use a distinct error type
+                // TODO use a distinct error type
                 Err(err) => panic!(err),
             };
         }
@@ -283,8 +259,25 @@ impl Reader {
         Ok(line.to_owned())
     }
 
+    fn lookahead(&mut self) -> Result<Token, LispError> {
+        return if self.lookahead.is_some() {
+            let token = self.lookahead.clone();
+            Ok(token.unwrap())
+        } else {
+            let token = self.next_token()?;
+            self.lookahead = Some(token.clone());
+            Ok(token)
+        };
+    }
+
     fn next_token(&mut self) -> Result<Token, LispError> {
         use self::Token::*;
+
+        if self.lookahead.is_some() {
+            let token = self.lookahead.clone();
+            self.lookahead = None;
+            return Ok(token.unwrap());
+        }
 
         match self.read_line(false) {
             Ok(line) => self.line = line.to_owned(),
@@ -302,7 +295,6 @@ impl Reader {
             }
             self.string = true;
             let mut buffer = self.line.clone();
-            buffer.push('\n');
             loop {
                 self.line.clear();
                 match self.read_line(false) {
@@ -340,6 +332,11 @@ impl Reader {
         for cap in self.re_symbol.captures_iter(&line) {
             self.line = self.line.replacen(&cap[0], "", 1);
             return Ok(Symbol(cap[0].to_lowercase()));
+        }
+
+        for cap in self.re_dots.captures_iter(&line) {
+            self.line = self.line.replacen(&cap[0], "", 1);
+            return Ok(Symbol(cap[0].to_owned()));
         }
 
         if line.starts_with(",@") {
@@ -383,10 +380,9 @@ impl Reader {
                 return Ok(Unquote);
             }
             '#' => {
-                let next = self.line.chars().next();
-                if next.is_some() {
+                if let Some(next) = self.line.chars().next() {
                     self.line.remove(0);
-                    return Ok(Pound(next.unwrap().to_lowercase().to_string()));
+                    return Ok(Pound(next.to_lowercase().to_string()));
                 }
                 return self.parse_error(format!("`{}'", first).as_str());
             }
@@ -420,14 +416,14 @@ impl Reader {
     fn parse_error<T>(&mut self, err: &str) -> Result<T, LispError> {
         self.scope = 0;
         self.string = false;
-        Err(LispError::BadSyntax("read".to_owned(), format!("bad syntax {}", err)))
+        Err(LispError::BadSyntax("read".to_owned(), err.to_owned()))
     }
 }
 
 // TODO 补充完整ASCII中所有的不可打印字符
 // FIXME newline应该根据平台决定是linefeed还是return
 // See also https://groups.csail.mit.edu/mac/ftpdir/scheme-7.4/doc-html/scheme_6.html
-pub fn name_to_char(name: &str) -> Option<char> {
+fn name_to_char(name: &str) -> Option<char> {
     if name.len() > 1 {
         // 字符名不区分大小写
         match name.to_lowercase().as_str() {
@@ -444,7 +440,7 @@ pub fn name_to_char(name: &str) -> Option<char> {
 
 // TODO 参看 name_to_char
 #[allow(dead_code)]
-pub fn char_to_name(ch: char) -> String {
+fn char_to_name(ch: char) -> String {
     match ch {
         '\x08' => "backspace".to_owned(),
         '\n' => "newline".to_owned(),

@@ -117,7 +117,7 @@ impl Context {
                     func(self, vals)
                 }
             }
-            _ => Err(ApplyError("not a procedure".to_owned())),
+            _ => Err(ApplyError(format!("not a procedure: {}", *proc))),
         }
     }
 }
@@ -198,17 +198,31 @@ impl<'a> fmt::Display for Sexp {
             Str(n) => write!(f, "{:?}", n), // 字符串输出时显示双引号
             Function { name, .. } => write!(f, "#<procedure:{}>", name),
             Closure { .. } => write!(f, "#<procedure>"),
-            List(exprs, tail) => {
-                let mut datum = String::with_capacity(exprs.len() + 2);
+            List(first, second) => {
+                let mut datum = String::with_capacity(first.len() + 2);
                 datum.push('(');
-                for expr in exprs.iter() {
+                for expr in first.iter() {
                     datum.push_str(format!("{} ", expr).as_str());
                 }
-                if **tail != Sexp::Nil {
-                    // 添加尾部的非空表
-                    datum.push_str(format!(". {}", **tail).as_str());
-                } else if datum.len() > 1 {
-                    // 删除最后的空格
+
+                let mut exprs = (*second).clone();
+                loop {
+                    match (*exprs).clone() {
+                        List(init, last) => {
+                            for expr in init.iter() {
+                                datum.push_str(format!("{} ", expr).as_str());
+                            }
+                            exprs = last;
+                        }
+                        Nil => { break; }
+                        _ => {
+                            datum.push_str(format!(". {} ", exprs).as_str());
+                            break;
+                        }
+                    }
+                }
+                // 删除多余空格
+                if datum.len() > 1 {
                     datum.pop();
                 }
                 datum.push(')');
