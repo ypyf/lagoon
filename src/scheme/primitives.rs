@@ -5,10 +5,6 @@ use scheme::types::Sexp;
 
 use std::process::exit;
 
-fn syntax_error(syntax: &str, expr: &str) -> LispResult {
-    Err(BadSyntax(syntax.to_owned(), format!("bad syntax\n in: {}", expr)))
-}
-
 pub fn plus(_context: &mut Context, args: Vec<Sexp>) -> LispResult {
     let mut vals = Vec::with_capacity(args.len());
     for arg in args {
@@ -71,14 +67,14 @@ pub fn quit(_context: &mut Context, args: Vec<Sexp>) -> LispResult {
 pub fn define(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
     let arity = exprs.len();
     if arity == 0 {
-        return syntax_error("define", &ctx.get_current_expr().to_string());
+        return Err(BadSyntax("define".to_owned(), None, ctx.clone()));
     }
     match exprs[0] {
         Sexp::Symbol(ref sym) => {
             if arity == 1 {
-                syntax_error("define", "(missing expression after identifier)")
+                Err(BadSyntax("define".to_owned(), Some("missing expression after identifier".to_owned()), ctx.clone()))
             } else if arity > 2 {
-                syntax_error("define", "(multiple expressions after identifier)")
+                Err(BadSyntax("define".to_owned(), Some("multiple expressions after identifier".to_owned()), ctx.clone()))
             } else {
                 let val = ctx.eval(&exprs[1])?;
                 match val {
@@ -91,14 +87,14 @@ pub fn define(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
                 Ok(Sexp::Void)
             }
         }
-        _ => syntax_error("define", ""),
+        _ => Err(BadSyntax("define".to_owned(), None, ctx.clone())),
     }
 }
 
-pub fn assign(_context: &mut Context, exprs: Vec<Sexp>) -> LispResult {
+pub fn assign(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
     let arity = exprs.len();
     if arity == 0 {
-        return syntax_error("set!", "");
+        return Err(BadSyntax("set!".to_owned(), None, ctx.clone()));
     }
     Err(NotImplemented("set!".to_owned()))
 }
@@ -106,7 +102,7 @@ pub fn assign(_context: &mut Context, exprs: Vec<Sexp>) -> LispResult {
 pub fn quote(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
     let arity = exprs.len();
     if arity != 1 {
-        return syntax_error("quote", &ctx.get_current_expr().to_string());
+        return Err(BadSyntax("quote".to_owned(), None, ctx.clone()));
     }
     Ok(exprs[0].clone())
 }
@@ -116,9 +112,9 @@ pub fn lambda(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
 
     let arity = exprs.len();
     if arity == 0 {
-        return syntax_error("lambda", &ctx.get_current_expr().to_string());
+        return Err(BadSyntax("lambda".to_owned(), None, ctx.clone()));
     } else if arity == 1 {
-        return syntax_error("body", "no expression in body");
+        return Err(BadSyntax("body".to_owned(), Some("no expression in body".to_owned()), ctx.clone()));
     }
 
     match exprs[0] {
@@ -133,13 +129,13 @@ pub fn lambda(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
             let vararg = match (*(*last)).clone() {
                 Nil => None,
                 Symbol(sym) => Some(sym.clone()),
-                _ => return syntax_error("lambda", "not an identifier"),
+                _ => return Err(BadSyntax("lambda".to_owned(), Some("not an identifier".to_owned()), ctx.clone())),
             };
             let mut params = vec![];
             for expr in init {
                 match expr {
                     Symbol(sym) => params.push(sym.clone()),
-                    _ => return syntax_error("lambda", "not an identifier"),
+                    _ => return Err(BadSyntax("lambda".to_owned(), Some("not an identifier".to_owned()), ctx.clone())),
                 }
             }
             Ok(Closure {
@@ -159,6 +155,6 @@ pub fn lambda(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
                 context: (*ctx).clone(),
             })
         }
-        _ => return syntax_error("lambda", "not an identifier"),
+        _ => return Err(BadSyntax("lambda".to_owned(), Some("not an identifier".to_owned()), ctx.clone())),
     }
 }

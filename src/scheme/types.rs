@@ -119,7 +119,7 @@ impl Context {
                     func(self, args)
                 } else {
                     if *args.last().unwrap() != Sexp::Nil {
-                        return Err(LispError::BadSyntax("apply".to_owned(), "bad syntax".to_owned()));
+                        return Err(BadSyntax("apply".to_owned(), None, self.clone()));
                     }
                     args.pop();
                     let mut vals = Vec::with_capacity(args.len());
@@ -132,7 +132,7 @@ impl Context {
             }
             Closure { name, params, vararg, body, mut context } => {
                 if *args.last().unwrap() != Sexp::Nil {
-                    return Err(LispError::BadSyntax("apply".to_owned(), "bad syntax".to_owned()));
+                    return Err(BadSyntax("apply".to_owned(), None, self.clone()));
                 }
                 args.pop();
                 let func_name = if name.is_empty() {
@@ -144,9 +144,9 @@ impl Context {
                 let nargs = args.len();
                 if nargs < nparams && vararg.is_some() {
                     // TODO message: expected least nparams...
-                    return Err(LispError::ArityMismatch(func_name, nparams, nargs));
+                    return Err(ArityMismatch(func_name, nparams, nargs));
                 } else if nargs != nparams && vararg.is_none() {
-                    return Err(LispError::ArityMismatch(func_name, nparams, nargs));
+                    return Err(ArityMismatch(func_name, nparams, nargs));
                 }
                 context.enter_scope();
                 match vararg {
@@ -301,7 +301,8 @@ impl<'a> fmt::Display for Sexp {
 pub enum LispError {
     EndOfInput,
     Interrupted,
-    BadSyntax(String, String),
+    ReadError(String),
+    BadSyntax(String, Option<String>, Context),
     Undefined(String),
     ApplyError(String),
     ArityMismatch(String, usize, usize),
@@ -316,7 +317,15 @@ impl fmt::Display for LispError {
         match self {
             EndOfInput => write!(f, ""),
             Interrupted => write!(f, "User interrupt"),
-            BadSyntax(sym, err) => write!(f, "{}: {}", sym, err),
+            ReadError(err) => write!(f, "read: {}", err),
+            BadSyntax(sym, err, ctx) => {
+                let msg = if let Some(e) = err {
+                    format!("bad syntax ({})", e)
+                } else {
+                    "bad syntax".to_owned()
+                };
+                write!(f, "{}: {}\n in: {}", sym, msg, ctx.get_current_expr())
+            },
             Undefined(sym) => write!(
                 f,
                 "{}: undefined;\n cannot reference undefined identifier",
@@ -340,7 +349,8 @@ impl Error for LispError {
         match self {
             EndOfInput => "end of input",
             Interrupted => "user interrupt",
-            BadSyntax(_, _) => "bad syntax",
+            ReadError(_) => "read error",
+            BadSyntax(_, _, _) => "bad syntax",
             Undefined(_) => "undefined identifier",
             ApplyError(_) => "application error",
             ArityMismatch(_, _, _) => "arity mismatch",

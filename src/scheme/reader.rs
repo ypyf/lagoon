@@ -419,7 +419,7 @@ impl<'a> Reader<'a> {
     fn parse_error<T>(&mut self, err: &str) -> Result<T, LispError> {
         self.scope = 0;
         self.string = false;
-        Err(LispError::BadSyntax("read".to_owned(), err.to_owned()))
+        Err(LispError::ReadError(err.to_owned()))
     }
 }
 
