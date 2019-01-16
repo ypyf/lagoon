@@ -2,19 +2,21 @@ use scheme::types::Context;
 use scheme::types::LispError::*;
 use scheme::types::LispResult;
 use scheme::types::Sexp;
+use scheme::types::Sexp::*;
 
 use std::process::exit;
+use std::rc::Rc;
 
 pub fn plus(_context: &mut Context, args: Vec<Sexp>) -> LispResult {
     let mut vals = Vec::with_capacity(args.len());
     for arg in args {
         match arg {
-            Sexp::Number(n) => vals.push(n),
+            Number(n) => vals.push(n),
             _ => return Err(TypeMismatch("number".to_owned(), format!("{}", arg))),
         }
     }
     let sum: i64 = vals.iter().fold(0, |acc, &x| acc + x);
-    Ok(Sexp::Number(sum))
+    Ok(Number(sum))
 }
 
 pub fn subtract(_context: &mut Context, args: Vec<Sexp>) -> LispResult {
@@ -26,19 +28,19 @@ pub fn subtract(_context: &mut Context, args: Vec<Sexp>) -> LispResult {
     let mut vals = Vec::with_capacity(arity);
     for arg in args {
         match arg {
-            Sexp::Number(n) => vals.push(n),
+            Number(n) => vals.push(n),
             _ => return Err(TypeMismatch("number".to_owned(), format!("{}", arg))),
         }
     }
 
     if arity == 1 {
-        Ok(Sexp::Number(-vals[0]))
+        Ok(Number(-vals[0]))
     } else {
         let mut acc = vals[0];
         for x in &vals[1..] {
             acc -= *x
         }
-        Ok(Sexp::Number(acc))
+        Ok(Number(acc))
     }
 }
 
@@ -46,18 +48,18 @@ pub fn multiply(_context: &mut Context, args: Vec<Sexp>) -> LispResult {
     let mut vals = Vec::with_capacity(args.len());
     for arg in args {
         match arg {
-            Sexp::Number(n) => vals.push(n),
+            Number(n) => vals.push(n),
             _ => return Err(TypeMismatch("number".to_owned(), format!("{}", arg))),
         }
     }
     let sum: i64 = vals.iter().fold(1, |acc, &x| acc * x);
-    Ok(Sexp::Number(sum))
+    Ok(Number(sum))
 }
 
 pub fn quit(_context: &mut Context, args: Vec<Sexp>) -> LispResult {
     for arg in args {
         match arg {
-            Sexp::Number(n) => exit(n as i32),
+            Number(n) => exit(n as i32),
             _ => exit(0),
         }
     }
@@ -68,23 +70,49 @@ pub fn define(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
     let arity = exprs.len();
     if arity == 0 {
         return Err(BadSyntax("define".to_owned(), None, ctx.clone()));
+    } else if arity == 1 {
+        return Err(BadSyntax("define".to_owned(), Some("missing expression after identifier".to_owned()), ctx.clone()))
+    } else if arity > 2 {
+        return Err(BadSyntax("define".to_owned(), Some("multiple expressions after identifier".to_owned()), ctx.clone()))
     }
-    match exprs[0] {
-        Sexp::Symbol(ref sym) => {
-            if arity == 1 {
-                Err(BadSyntax("define".to_owned(), Some("missing expression after identifier".to_owned()), ctx.clone()))
-            } else if arity > 2 {
-                Err(BadSyntax("define".to_owned(), Some("multiple expressions after identifier".to_owned()), ctx.clone()))
-            } else {
-                let val = ctx.eval(&exprs[1])?;
-                match val {
-                    Sexp::Closure { name: _, params, vararg, body, context } => {
-                        let closure = Sexp::Closure { name: sym.clone(), params, vararg, body, context };
-                        ctx.define_variable(sym, closure);
-                    }
-                    _ => ctx.define_variable(sym, val.clone())
+
+    match exprs[0].clone() {
+        Symbol(ref sym) => {
+            let val = ctx.eval(&exprs[1])?;
+            match val {
+                Closure { name: _, params, vararg, body, context } => {
+                    let closure = Closure { name: sym.clone(), params, vararg, body, context };
+                    ctx.define_variable(sym, closure);
                 }
-                Ok(Sexp::Void)
+                _ => ctx.define_variable(sym, val.clone())
+            }
+            Ok(Void)
+        }
+        List(init, last) => {
+            match *last {
+                // (define (name x y) (+ x y)) => (define name (lambda (x y) (+ x y)))
+                Nil => {
+                    let expr = if let Some((name, params)) = init.split_first() {
+                        let param_list = List(params.to_vec(), Rc::new(Nil));
+                        let lambda = List(vec![Symbol("lambda".to_owned()), param_list, exprs[1].clone()], Rc::new(Nil));
+                        List(vec![Symbol("define".to_owned()), name.clone(), lambda], Rc::new(Nil))
+                    } else {
+                        return Err(BadSyntax("define".to_owned(), None, ctx.clone()));
+                    };
+                    ctx.eval(&expr)
+                }
+                // (define (name x y . v) (+ x y)) => (define name (lambda (x y . v) (+ x y)))
+                Symbol(_) => {
+                    let expr = if let Some((name, params)) = init.split_first() {
+                        let param_list = List(params.to_vec(), last.clone());
+                        let lambda = List(vec![Symbol("lambda".to_owned()), param_list, exprs[1].clone()], Rc::new(Nil));
+                        List(vec![Symbol("define".to_owned()), name.clone(), lambda], Rc::new(Nil))
+                    } else {
+                        return Err(BadSyntax("define".to_owned(), None, ctx.clone()));
+                    };
+                    ctx.eval(&expr)
+                }
+                _ => Err(BadSyntax("define".to_owned(), None, ctx.clone())),
             }
         }
         _ => Err(BadSyntax("define".to_owned(), None, ctx.clone())),

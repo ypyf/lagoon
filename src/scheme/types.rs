@@ -134,11 +134,19 @@ impl Context {
                     return Err(BadSyntax("apply".to_owned(), None, self.clone()));
                 }
                 args.pop();
+
+                let mut vals = Vec::with_capacity(args.len());
+                for arg in &args {
+                    let val = self.eval(&arg)?;
+                    vals.push(val);
+                }
+
                 let func_name = if name.is_empty() {
                     "#<procedure>".to_string()
                 } else {
                     name
                 };
+
                 let nparams = params.len();
                 let nargs = args.len();
                 if nargs < nparams && vararg.is_some() {
@@ -150,18 +158,18 @@ impl Context {
                 context.enter_scope();
                 match vararg {
                     Some(sym) => {
-                        for (k, v) in params.iter().zip(args.iter()) {
+                        for (k, v) in params.iter().zip(vals.iter()) {
                             context.define_variable(k, (*v).clone());
                         }
                         let val = if nargs == nparams {
                             Nil
                         } else {
-                            List(args[nparams..].to_vec(), Rc::new(Nil))
+                            List(vals[nparams..].to_vec(), Rc::new(Nil))
                         };
                         context.define_variable(&sym, val);
                     }
                     _ => {
-                        for (k, v) in params.iter().zip(args.iter()) {
+                        for (k, v) in params.iter().zip(vals.iter()) {
                             context.define_variable(k, (*v).clone());
                         }
                     }
