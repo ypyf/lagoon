@@ -9,18 +9,28 @@ pub type LispResult = Result<Sexp, LispError>;
 
 type Env = LinkedList<HashMap<String, Sexp>>;
 
+#[derive(Debug, Clone)]
 pub struct Context {
     env: Env,
+    current: Rc<Sexp>,
 }
 
 #[allow(dead_code)]
 impl Context {
     pub fn new() -> Self {
-        Context { env: Env::new() }
+        Context { env: Env::new(), current: Rc::new(Sexp::Void) }
     }
 
     pub fn get_env(&self) -> &Env {
         &self.env
+    }
+
+    pub fn get_current_expr(&self) -> Rc<Sexp> {
+        self.current.clone()
+    }
+
+    pub fn set_current_expr(&mut self, expr: Rc<Sexp>) {
+        self.current = expr
     }
 
     pub fn enter_scope(&mut self) {
@@ -75,30 +85,33 @@ impl Context {
         use self::LispError::*;
 
         match expr {
-            Symbol(ref sym) => match self.lookup(sym.as_str()) {
-                Some(val) => Ok(val.clone()),
-                None => Err(Undefined(sym.clone())),
+            Symbol(sym) => match self.lookup(sym.as_str()) {
+                Some(val) => {
+                    Ok(val)
+                }
+                None => Err(Undefined(sym.to_string())),
             },
             List(v, t) => {
+                self.current = Rc::new(expr.clone());
                 if v.is_empty() {
                     return Err(ApplyError("missing procedure expression".to_owned()));
                 }
                 let proc = self.eval(&v[0])?;
                 let mut args = v[1..].to_vec();
                 args.push((**t).clone());
-                self.apply(&proc, args)
+                self.apply(proc, args)
             }
             _ => Ok(expr.clone()), // 其它表达式求值到其本身
         }
     }
 
-    fn apply(&mut self, proc: &Sexp, exprs: Vec<Sexp>) -> LispResult {
+    fn apply(&mut self, proc: Sexp, exprs: Vec<Sexp>) -> LispResult {
         use self::Sexp::*;
         use self::LispError::*;
 
-        match *proc {
+        let mut args = exprs;
+        match proc {
             Function { name: _, special, func } => {
-                let mut args = exprs;
                 if special {
                     if *args.last().unwrap() == Sexp::Nil {
                         args.pop();
@@ -117,7 +130,53 @@ impl Context {
                     func(self, vals)
                 }
             }
-            _ => Err(ApplyError(format!("not a procedure: {}", *proc))),
+            Closure { name, params, vararg, body, mut context } => {
+                if *args.last().unwrap() != Sexp::Nil {
+                    return Err(LispError::BadSyntax("apply".to_owned(), "bad syntax".to_owned()));
+                }
+                args.pop();
+                let func_name = if name.is_empty() {
+                    "#<procedure>".to_string()
+                } else {
+                    name
+                };
+                let nparams = params.len();
+                let nargs = args.len();
+                if nargs < nparams && vararg.is_some() {
+                    // TODO message: expected least nparams...
+                    return Err(LispError::ArityMismatch(func_name, nparams, nargs));
+                } else if nargs != nparams && vararg.is_none() {
+                    return Err(LispError::ArityMismatch(func_name, nparams, nargs));
+                }
+                context.enter_scope();
+                match vararg {
+                    Some(sym) => {
+                        for (k, v) in params.iter().zip(args.iter()) {
+                            context.define_variable(k, (*v).clone());
+                        }
+                        let val = if nargs == nparams {
+                            Nil
+                        } else {
+                            List(args[nparams..].to_vec(), Rc::new(Nil))
+                        };
+                        context.define_variable(&sym, val);
+                    }
+                    _ => {
+                        for (k, v) in params.iter().zip(args.iter()) {
+                            context.define_variable(k, (*v).clone());
+                        }
+                    }
+                }
+                // TODO tail call optimization
+                let (last, elements) = body.split_last().unwrap();
+                for expr in elements {
+                    context.eval(&expr).unwrap();
+                }
+                let res = context.eval(last);
+                context.leave_scope();
+                res
+            }
+            _ => Err(ApplyError(format!("not a procedure: {}", proc))),
         }
     }
 }
@@ -146,7 +205,7 @@ pub enum Sexp {
         params: Vec<String>,
         vararg: Option<String>,
         body: Vec<Sexp>,
-        env: Env,
+        context: Context,
     },
 }
 
@@ -197,7 +256,13 @@ impl<'a> fmt::Display for Sexp {
             Char(n) => write!(f, "#\\{}", char_to_name(*n)),
             Str(n) => write!(f, "{:?}", n), // 字符串输出时显示双引号
             Function { name, .. } => write!(f, "#<procedure:{}>", name),
-            Closure { .. } => write!(f, "#<procedure>"),
+            Closure { name, .. } => {
+                if name.len() > 0 {
+                    write!(f, "#<procedure:{}>", name)
+                } else {
+                    write!(f, "#<procedure>")
+                }
+            }
             List(first, second) => {
                 let mut datum = String::with_capacity(first.len() + 2);
                 datum.push('(');

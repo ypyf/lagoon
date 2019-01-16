@@ -6,6 +6,7 @@ use scheme::types::Sexp;
 
 use std::fs::File;
 use std::io::BufReader;
+use std::rc::Rc;
 
 pub struct Interpreter {
     context: Context,
@@ -36,8 +37,9 @@ impl Interpreter {
         self.set_globals();
         loop {
             match lisp_reader.read() {
-                Ok(sexp) => {
-                    let result = self.context.eval(&sexp);
+                Ok(ref sexp) => {
+                    self.context.set_current_expr(Rc::new(sexp.clone()));
+                    let result = self.context.eval(sexp);
                     match result {
                         Ok(val) => match val {
                             Sexp::Void => (),

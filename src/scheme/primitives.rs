@@ -5,6 +5,10 @@ use scheme::types::Sexp;
 
 use std::process::exit;
 
+fn syntax_error(syntax: &str, expr: &str) -> LispResult {
+    Err(BadSyntax(syntax.to_owned(), format!("bad syntax\n in: {}", expr)))
+}
+
 pub fn plus(_context: &mut Context, args: Vec<Sexp>) -> LispResult {
     let mut vals = Vec::with_capacity(args.len());
     for arg in args {
@@ -64,68 +68,97 @@ pub fn quit(_context: &mut Context, args: Vec<Sexp>) -> LispResult {
     exit(0);
 }
 
-pub fn define(context: &mut Context, exprs: Vec<Sexp>) -> LispResult {
+pub fn define(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
     let arity = exprs.len();
     if arity == 0 {
-        return Err(BadSyntax("define".to_owned(), String::new()));
+        return syntax_error("define", &ctx.get_current_expr().to_string());
     }
     match exprs[0] {
         Sexp::Symbol(ref sym) => {
             if arity == 1 {
-                Err(BadSyntax(
-                    "define".to_owned(),
-                    "(missing expression after identifier)".to_owned(),
-                ))
+                syntax_error("define", "(missing expression after identifier)")
             } else if arity > 2 {
-                Err(BadSyntax(
-                    "define".to_owned(),
-                    "(multiple expressions after identifier)".to_owned(),
-                ))
+                syntax_error("define", "(multiple expressions after identifier)")
             } else {
-                let val = context.eval(&exprs[1])?;
-                context.define_variable(sym, val.clone());
+                let val = ctx.eval(&exprs[1])?;
+                match val {
+                    Sexp::Closure { name: _, params, vararg, body, context } => {
+                        let closure = Sexp::Closure { name: sym.clone(), params, vararg, body, context };
+                        ctx.define_variable(sym, closure);
+                    }
+                    _ => ctx.define_variable(sym, val.clone())
+                }
                 Ok(Sexp::Void)
             }
         }
-        _ => Err(BadSyntax("define".to_owned(), String::new())),
+        _ => syntax_error("define", ""),
     }
 }
 
 pub fn assign(_context: &mut Context, exprs: Vec<Sexp>) -> LispResult {
     let arity = exprs.len();
     if arity == 0 {
-        return Err(BadSyntax("set!".to_owned(), String::new()));
+        return syntax_error("set!", "");
     }
     Err(NotImplemented("set!".to_owned()))
 }
 
-pub fn quote(_context: &mut Context, exprs: Vec<Sexp>) -> LispResult {
+pub fn quote(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
     let arity = exprs.len();
     if arity != 1 {
-        return Err(BadSyntax("quote".to_owned(), "bad syntax".to_owned()));
+        return syntax_error("quote", &ctx.get_current_expr().to_string());
     }
     Ok(exprs[0].clone())
 }
 
-pub fn lambda(context: &mut Context, exprs: Vec<Sexp>) -> LispResult {
+pub fn lambda(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
     use scheme::types::Sexp::*;
 
     let arity = exprs.len();
     if arity == 0 {
-        return Err(BadSyntax("lambda".to_owned(), "bad syntax\n in: (lambda)".to_owned()));
+        return syntax_error("lambda", &ctx.get_current_expr().to_string());
     } else if arity == 1 {
-        return Err(BadSyntax("body".to_owned(), "no expression in body".to_owned()));
+        return syntax_error("body", "no expression in body");
     }
+
     match exprs[0] {
+        Nil => Ok(Closure {
+            name: String::new(),
+            params: vec![],
+            vararg: None,
+            body: exprs[1..].to_vec(),
+            context: (*ctx).clone(),
+        }),
+        List(ref init, ref last) => {
+            let vararg = match (*(*last)).clone() {
+                Nil => None,
+                Symbol(sym) => Some(sym.clone()),
+                _ => return syntax_error("lambda", "not an identifier"),
+            };
+            let mut params = vec![];
+            for expr in init {
+                match expr {
+                    Symbol(sym) => params.push(sym.clone()),
+                    _ => return syntax_error("lambda", "not an identifier"),
+                }
+            }
+            Ok(Closure {
+                name: String::new(),
+                params,
+                vararg,
+                body: exprs[1..].to_vec(),
+                context: (*ctx).clone(),
+            })
+        }
         Symbol(ref sym) => {
             Ok(Closure {
                 name: String::new(),
                 params: vec![],
                 vararg: Some(sym.clone()),
                 body: exprs[1..].to_vec(),
-                env: context.get_env().clone(),
+                context: (*ctx).clone(),
             })
         }
-        _ => Err(NotImplemented("lambda".to_owned()))
+        _ => return syntax_error("lambda", "not an identifier"),
     }
 }

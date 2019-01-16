@@ -55,7 +55,6 @@ pub struct Reader<'a> {
     re_string: Regex,
     re_char: Regex,
     re_symbol: Regex,
-//    re_dots: Regex,
     use_stdin: bool,
     readline: Editor<()>,
     ps1: &'a str,
@@ -100,7 +99,6 @@ impl<'a> Reader<'a> {
             re_char: Regex::new(r"^#\\([[:alpha:]]+|.)").unwrap(), // 不包含\n
             re_number: Regex::new(r"^[-+]?\d+").unwrap(),
             re_symbol: Regex::new(r"^[^#;'`,\s()][^#;'`,\s()]*").unwrap(),
-//            re_dots: Regex::new(r"^\.{2,}").unwrap(),
             use_stdin: false,
             ps1: "scheme> ",
             ps2: "",
