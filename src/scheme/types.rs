@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::collections::LinkedList;
 use std::error::Error;
 use std::fmt;
 use std::rc::Rc;
@@ -7,7 +6,7 @@ use std::str;
 
 pub type LispResult = Result<Sexp, LispError>;
 
-type Env = LinkedList<HashMap<String, Sexp>>;
+type Env = Vec<HashMap<String, Sexp>>;
 
 #[derive(Debug, Clone)]
 pub struct Context {
@@ -34,20 +33,20 @@ impl Context {
     }
 
     pub fn enter_scope(&mut self) {
-        self.env.push_back(HashMap::new())
+        self.env.push(HashMap::new())
     }
 
     pub fn leave_scope(&mut self) {
-        self.env.pop_back();
+        self.env.pop();
     }
 
     pub fn define_variable(&mut self, name: &str, sexp: Sexp) {
-        let current = self.env.back_mut().unwrap();
+        let current = self.env.last_mut().unwrap();
         current.insert(name.to_owned(), sexp);
     }
 
     pub fn define_synatx(&mut self, name: &str, func: Function) {
-        let current = self.env.back_mut().unwrap();
+        let current = self.env.last_mut().unwrap();
         current.insert(
             name.to_owned(),
             Sexp::Function {
@@ -59,7 +58,7 @@ impl Context {
     }
 
     pub fn define_proc(&mut self, name: &str, func: Function) {
-        let current = self.env.back_mut().unwrap();
+        let current = self.env.last_mut().unwrap();
         current.insert(
             name.to_owned(),
             Sexp::Function {
@@ -71,7 +70,7 @@ impl Context {
     }
 
     pub fn lookup(&self, name: &str) -> Option<Sexp> {
-        for current in &self.env {
+        for current in self.env.iter().rev() {
             match current.get(name) {
                 Some(val) => return Some(val.clone()),
                 None => continue,
