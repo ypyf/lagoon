@@ -69,11 +69,10 @@ impl Context {
         );
     }
 
-    pub fn lookup(&self, name: &str) -> Option<Sexp> {
+    pub fn lookup(&self, name: &str) -> Option<&Sexp> {
         for current in self.env.iter().rev() {
-            match current.get(name) {
-                Some(val) => return Some(val.clone()),
-                None => continue,
+            if let Some(val) = current.get(name) {
+                return Some(val);
             }
         }
         None
@@ -86,7 +85,7 @@ impl Context {
         match expr {
             Symbol(sym) => match self.lookup(sym.as_str()) {
                 Some(val) => {
-                    Ok(val)
+                    Ok(val.clone())
                 }
                 None => Err(Undefined(sym.to_string())),
             },
