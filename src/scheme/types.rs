@@ -3,6 +3,7 @@ use std::error::Error;
 use std::fmt;
 use std::rc::Rc;
 use std::str;
+use std::cell::RefCell;
 
 pub type LispResult = Result<Sexp, LispError>;
 
@@ -10,18 +11,18 @@ type Env = Vec<HashMap<String, Sexp>>;
 
 #[derive(Debug, Clone)]
 pub struct Context {
-    env: Env,
+    env: Rc<RefCell<Env>>,
     current: Rc<Sexp>,
 }
 
 #[allow(dead_code)]
 impl Context {
     pub fn new() -> Self {
-        Context { env: Env::new(), current: Rc::new(Sexp::Void) }
+        Context { env: Rc::new(RefCell::new(Env::new())), current: Rc::new(Sexp::Void) }
     }
 
-    pub fn get_env(&self) -> &Env {
-        &self.env
+    pub fn get_env(&self) -> Env {
+        self.env.borrow().clone()
     }
 
     pub fn get_current_expr(&self) -> Rc<Sexp> {
@@ -33,46 +34,39 @@ impl Context {
     }
 
     pub fn enter_scope(&mut self) {
-        self.env.push(HashMap::new())
+        self.env.borrow_mut().push(HashMap::new())
     }
 
     pub fn leave_scope(&mut self) {
-        self.env.pop();
+        self.env.borrow_mut().pop();
     }
 
     pub fn define_variable(&mut self, name: &str, sexp: Sexp) {
-        let current = self.env.last_mut().unwrap();
-        current.insert(name.to_owned(), sexp);
+        self.env.borrow_mut().last_mut().unwrap().insert(name.to_owned(), sexp);
     }
 
     pub fn define_synatx(&mut self, name: &str, func: Function) {
-        let current = self.env.last_mut().unwrap();
-        current.insert(
-            name.to_owned(),
-            Sexp::Function {
-                name: name.to_owned(),
-                special: true,
-                func,
-            },
-        );
+        let expr = Sexp::Function {
+            name: name.to_owned(),
+            special: true,
+            func,
+        };
+        self.env.borrow_mut().last_mut().unwrap().insert(name.to_owned(), expr);
     }
 
     pub fn define_proc(&mut self, name: &str, func: Function) {
-        let current = self.env.last_mut().unwrap();
-        current.insert(
-            name.to_owned(),
-            Sexp::Function {
-                name: name.to_owned(),
-                special: false,
-                func,
-            },
-        );
+        let expr = Sexp::Function {
+            name: name.to_owned(),
+            special: false,
+            func,
+        };
+        self.env.borrow_mut().last_mut().unwrap().insert(name.to_owned(), expr);
     }
 
-    pub fn lookup(&self, name: &str) -> Option<&Sexp> {
-        for current in self.env.iter().rev() {
+    pub fn lookup(&self, name: &str) -> Option<Sexp> {
+        for current in self.env.borrow_mut().iter().rev() {
             if let Some(val) = current.get(name) {
-                return Some(val);
+                return Some(val.clone());
             }
         }
         None
@@ -83,11 +77,11 @@ impl Context {
         use self::LispError::*;
 
         match expr {
-            Symbol(sym) => match self.lookup(sym.as_str()) {
+            Symbol(name) => match self.lookup(name.as_str()) {
                 Some(val) => {
-                    Ok(val.clone())
+                    Ok(val)
                 }
-                None => Err(Undefined(sym.to_string())),
+                None => Err(Undefined(name.to_string())),
             },
             List(v, t) => {
                 self.current = Rc::new(expr.clone());
