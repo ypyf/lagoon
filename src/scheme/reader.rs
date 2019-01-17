@@ -9,6 +9,7 @@ use scheme::types::Sexp;
 use std::error::Error;
 use std::fmt;
 use std::path::PathBuf;
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::str;
 
@@ -96,7 +97,7 @@ impl<'a> Reader<'a> {
         rl.set_history_ignore_space(true);
         Reader {
             re_string: Regex::new(r#"^"((\\.|[^"])*)""#).unwrap(),
-            re_char: Regex::new(r"^#\\([[:alpha:]]+|.)").unwrap(), // 不包含\n
+            re_char: Regex::new(r"^#\\(\S[^()\[\]\s]*|\s)").unwrap(),
             re_number: Regex::new(r"^[-+]?\d+").unwrap(),
             re_symbol: Regex::new(r"^[^#;'`,\s()][^#;'`,\s()]*").unwrap(),
             use_stdin: false,
@@ -116,7 +117,7 @@ impl<'a> Reader<'a> {
         self.ps2 = ps2;
     }
 
-    pub fn set_stdio(&mut self, flag:bool) {
+    pub fn set_stdio(&mut self, flag: bool) {
         self.use_stdin = flag;
     }
 
@@ -219,7 +220,7 @@ impl<'a> Reader<'a> {
     fn read_atom(&mut self, token: Token) -> LispResult {
         match token {
             Token::Number(lex) => self.parse_number(lex.as_str()),
-            Token::Str(lex) => Ok(Sexp::Str(lex)),
+            Token::Str(lex) => Ok(Sexp::Str(Rc::new(RefCell::new(lex)), false)),
             Token::Char(lex) => Ok(Sexp::Char(lex)),
             Token::Symbol(lex) => Ok(Sexp::Symbol(lex)),
             Token::Pound(lex) => self.parse_pound(lex.as_str()),
@@ -320,11 +321,7 @@ impl<'a> Reader<'a> {
             self.line = self.line.replacen(&cap[0], "", 1);
             match name_to_char(&cap[1]) {
                 Some(c) => return Ok(Char(c)),
-                None => {
-                    return self.parse_error(
-                        format!("bad character constant: {}", &cap[0]).as_str(),
-                    );
-                }
+                None => return self.parse_error(format!("bad character constant: {}", &cap[0]).as_str()),
             }
         }
 
@@ -358,6 +355,14 @@ impl<'a> Reader<'a> {
                 return Ok(Rune(first));
             }
             ')' => {
+                self.scope -= 1;
+                return Ok(Rune(first));
+            }
+            '[' => {
+                self.scope += 1;
+                return Ok(Rune(first));
+            }
+            ']' => {
                 self.scope -= 1;
                 return Ok(Rune(first));
             }
@@ -424,20 +429,21 @@ impl<'a> Reader<'a> {
 }
 
 // TODO 补充完整ASCII中所有的不可打印字符
-// FIXME newline应该根据平台决定是linefeed还是return
+// FIXME #\newline的编码应该根据平台决定是linefeed还是return
 // See also https://groups.csail.mit.edu/mac/ftpdir/scheme-7.4/doc-html/scheme_6.html
 fn name_to_char(name: &str) -> Option<char> {
-    if name.len() > 1 {
-        // 字符名不区分大小写
-        match name.to_lowercase().as_str() {
-            "backspace" => Some('\x08'),
-            "space" => Some(' '),
-            "newline" => Some('\n'),
-            "return" => Some('\r'),
-            _ => None,
+    // 字符名不区分大小写
+    match name.to_lowercase().as_str() {
+        "backspace" => Some('\x08'),
+        "space" => Some(' '),
+        "newline" => Some('\n'),
+        "return" => Some('\r'),
+        _ => if name.chars().count() == 1 {
+            // 单个unicode字符
+            name.chars().next()
+        } else {
+            None
         }
-    } else {
-        name.chars().next()
     }
 }
 

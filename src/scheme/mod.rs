@@ -1,4 +1,4 @@
 pub mod interpreter;
-mod primitives;
+mod procedure;
 mod reader;
 mod types;

@@ -12,23 +12,34 @@ type Env = Vec<HashMap<String, Rc<RefCell<Sexp>>>>;
 #[derive(Debug, Clone)]
 pub struct Context {
     env: Rc<RefCell<Env>>,
-    current: Rc<Sexp>,
+    last_expr: Rc<Sexp>,
+    current_proc: Rc<Sexp>, // 当前apply的过程
 }
 
+#[allow(dead_code)]
 impl Context {
     pub fn new() -> Self {
         Context {
             env: Rc::new(RefCell::new(Env::new())),
-            current: Rc::new(Sexp::Void)
+            last_expr: Rc::new(Sexp::Void),
+            current_proc: Rc::new(Sexp::Void),
         }
     }
 
     pub fn get_current_expr(&self) -> Rc<Sexp> {
-        self.current.clone()
+        self.last_expr.clone()
     }
 
     pub fn set_current_expr(&mut self, expr: Rc<Sexp>) {
-        self.current = expr
+        self.last_expr = expr
+    }
+
+    pub fn get_current_proc(&self) -> Rc<Sexp> {
+        self.current_proc.clone()
+    }
+
+    pub fn set_current_proc(&mut self, expr: Rc<Sexp>) {
+        self.current_proc = expr
     }
 
     pub fn enter_scope(&mut self) {
@@ -53,7 +64,7 @@ impl Context {
         }
     }
 
-    pub fn define_synatx(&mut self, name: &str, func: Function) {
+    pub fn def_synatx(&mut self, name: &str, func: Function) {
         let form = Sexp::Function {
             name: name.to_owned(),
             special: true,
@@ -62,7 +73,7 @@ impl Context {
         self.define_variable(name, &form);
     }
 
-    pub fn define_proc(&mut self, name: &str, func: Function) {
+    pub fn def_proc(&mut self, name: &str, func: Function) {
         let proc = Sexp::Function {
             name: name.to_owned(),
             special: false,
@@ -91,8 +102,9 @@ impl Context {
                 }
                 None => Err(Undefined(name.to_string())),
             },
+            Nil => return Err(ApplyError("missing procedure expression".to_owned())),
             List(v, t) => {
-                self.current = Rc::new(expr.clone());
+                self.last_expr = Rc::new(expr.clone());
                 if v.is_empty() {
                     return Err(ApplyError("missing procedure expression".to_owned()));
                 }
@@ -109,6 +121,7 @@ impl Context {
         use self::Sexp::*;
         use self::LispError::*;
 
+        self.set_current_proc(Rc::new(proc.clone()));
         let mut args = exprs;
         match proc {
             Function { name: _, special, func } => {
@@ -196,7 +209,7 @@ pub enum Sexp {
     Void,
     Nil,
     Char(char),
-    Str(String),
+    Str(Rc<RefCell<String>>, bool),
     True,
     False,
     Number(i64),
@@ -230,7 +243,7 @@ impl<'a> PartialEq for Sexp {
             (Symbol(s1), Symbol(s2)) => s1 == s2, // (string=? (symbol->string obj1) (symbol->string obj2))
             (Number(n1), Number(n2)) => n1 == n2, // (= obj1 obj2)
             (Char(c1), Char(c2)) => c1 == c2,     // (char=? obj1 obj2)
-            (Str(s1), Str(s2)) => s1 == s2,
+            (Str(s1, _), Str(s2, _)) => s1 == s2,
             (List(v1, b1), List(v2, b2)) => v1 == v2 && b1 == b2,
             (
                 Function {
@@ -262,7 +275,7 @@ impl<'a> fmt::Display for Sexp {
             Number(n) => write!(f, "{}", n),
             Symbol(n) => write!(f, "{}", n),
             Char(n) => write!(f, "#\\{}", char_to_name(*n)),
-            Str(n) => write!(f, "{:?}", n), // 字符串输出时显示双引号
+            Str(n, _) => write!(f, "{:?}", n.borrow()), // 字符串输出时显示双引号
             Function { name, .. } => write!(f, "#<procedure:{}>", name),
             Closure { name, .. } => {
                 if name.is_empty() {
@@ -315,6 +328,7 @@ pub enum LispError {
     ReadError(String),
     AssignError(String, Context),
     BadSyntax(String, Option<String>, Context),
+    IndexOutOfRange(String, usize, usize, usize),
     Undefined(String),
     ApplyError(String),
     ArityMismatch(String, usize, usize),
@@ -338,6 +352,8 @@ impl fmt::Display for LispError {
                 };
                 write!(f, "{}: {}\n in: {}", sym, msg, ctx.get_current_expr())
             }
+            IndexOutOfRange(sym, index, lower, upper) =>
+                write!(f, "{}: index is out of range\n index: {}\n valid range: [{}, {}]", sym, index, lower, upper),
             Undefined(sym) => write!(
                 f,
                 "{}: undefined;\n cannot reference undefined identifier",
@@ -364,6 +380,7 @@ impl Error for LispError {
             AssignError(_, _) => "set! error",
             BadSyntax(_, _, _) => "bad syntax",
             Undefined(_) => "undefined identifier",
+            IndexOutOfRange(_, _, _, _) => "index out of range",
             ApplyError(_) => "application error",
             ArityMismatch(_, _, _) => "arity mismatch",
             TypeMismatch(_, _) => "type mismatch",

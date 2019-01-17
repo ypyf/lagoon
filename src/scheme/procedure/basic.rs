@@ -4,18 +4,7 @@ use scheme::types::LispResult;
 use scheme::types::Sexp;
 use scheme::types::Sexp::*;
 
-use std::process::exit;
 use std::rc::Rc;
-
-pub fn quit(_context: &mut Context, args: Vec<Sexp>) -> LispResult {
-    for arg in args {
-        match arg {
-            Number(n) => exit(n as i32),
-            _ => exit(0),
-        }
-    }
-    exit(0);
-}
 
 pub fn define(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
     let arity = exprs.len();

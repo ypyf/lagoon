@@ -7,3 +7,4 @@ authors = ["ypyf <t34@qq.com>"]
 regex = "1.1.0"
 rustyline = "3.0.0"
 dirs = "1.0.4"
+itertools = "0.8.0"
