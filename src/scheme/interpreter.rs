@@ -1,4 +1,6 @@
-use scheme::primitives;
+use scheme::primitives::basic;
+use scheme::primitives::arith;
+use scheme::primitives::list;
 use scheme::reader::Reader;
 use scheme::types::Context;
 use scheme::types::LispError;
@@ -19,22 +21,25 @@ impl Interpreter {
         }
     }
 
-    fn set_globals(&mut self) {
-        self.context.define_proc("+", primitives::plus);
-        self.context.define_proc("-", primitives::subtract);
-        self.context.define_proc("*", primitives::multiply);
-        self.context.define_proc("quit", primitives::quit);
-        self.context.define_proc("exit", primitives::quit);
-        self.context.define_synatx("define", primitives::define);
-        self.context.define_synatx("set!", primitives::assign);
-        self.context.define_synatx("quote", primitives::quote);
-        self.context.define_synatx("lambda", primitives::lambda);
+    fn init_globals(&mut self) {
+        self.context.define_proc("+", arith::plus);
+        self.context.define_proc("-", arith::subtract);
+        self.context.define_proc("*", arith::multiply);
+        self.context.define_proc("/", arith::division);
+        self.context.define_proc("car", list::car);
+        self.context.define_proc("cdr", list::cdr);
+        self.context.define_proc("cons", list::cons);
+        self.context.define_proc("quit", basic::quit);
+        self.context.define_synatx("define", basic::define);
+        self.context.define_synatx("set!", basic::assign);
+        self.context.define_synatx("quote", basic::quote);
+        self.context.define_synatx("lambda", basic::lambda);
     }
 
     pub fn run_repl(&mut self) {
         let mut res_no = 0;
         self.context.enter_scope();
-        self.set_globals();
+        self.init_globals();
         loop {
             match Reader::new().read() {
                 Ok(ref sexp) => {
@@ -65,7 +70,7 @@ impl Interpreter {
         let mut _reader = BufReader::new(file);
         let mut lisp_reader = Reader::new();
         self.context.enter_scope();
-        self.set_globals();
+        self.init_globals();
         loop {
             match lisp_reader.read() {
                 Ok(sexp) => {

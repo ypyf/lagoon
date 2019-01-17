@@ -272,6 +272,9 @@ impl<'a> fmt::Display for Sexp {
                 }
             }
             List(first, second) => {
+                if first.is_empty() {
+                    return write!(f, "{}", second);
+                }
                 let mut datum = String::with_capacity(first.len() + 2);
                 datum.push('(');
                 for expr in first.iter() {
