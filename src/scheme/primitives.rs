@@ -82,9 +82,9 @@ pub fn define(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
             match val {
                 Closure { name: _, params, vararg, body, context } => {
                     let closure = Closure { name: sym.clone(), params, vararg, body, context };
-                    ctx.define_variable(sym, closure);
+                    ctx.define_variable(sym, &closure);
                 }
-                _ => ctx.define_variable(sym, val)
+                _ => ctx.define_variable(sym, &val)
             }
             Ok(Void)
         }
@@ -128,7 +128,7 @@ pub fn assign(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
     match exprs[0] {
         Symbol(ref sym) => {
             let val = ctx.eval(&exprs[1])?;
-            if ctx.set_variable(sym, val) {
+            if ctx.set_variable(sym, &val) {
                 Ok(Void)
             } else {
                 return Err(AssignError("cannot set undefined".to_owned(), ctx.clone()));

@@ -32,18 +32,22 @@ impl Interpreter {
     }
 
     pub fn run_repl(&mut self) {
-        let mut lisp_reader = Reader::new();
+        let mut res_no = 0;
         self.context.enter_scope();
         self.set_globals();
         loop {
-            match lisp_reader.read() {
+            match Reader::new().read() {
                 Ok(ref sexp) => {
                     self.context.set_current_expr(Rc::new(sexp.clone()));
-                    let result = self.context.eval(sexp);
-                    match result {
+                    match self.context.eval(sexp) {
                         Ok(val) => match val {
                             Sexp::Void => (),
-                            _ => println!("{}", val),
+                            _ => {
+                                res_no += 1;
+                                let last_res = format!("${}", res_no);
+                                self.context.define_variable(&last_res, &val);
+                                println!("{} => {}", last_res, val);
+                            }
                         },
                         Err(err) => println!("{}", err),
                     }

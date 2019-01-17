@@ -39,14 +39,14 @@ impl Context {
         self.env.borrow_mut().pop();
     }
 
-    pub fn define_variable(&mut self, name: &str, expr: Sexp) {
-        let var = Rc::new(RefCell::new(expr));
+    pub fn define_variable(&mut self, name: &str, val: &Sexp) {
+        let var = Rc::new(RefCell::new(val.clone()));
         self.env.borrow_mut().last_mut().unwrap().insert(name.to_owned(), var);
     }
 
-    pub fn set_variable(&mut self, name: &str, val: Sexp) -> bool {
+    pub fn set_variable(&mut self, name: &str, val: &Sexp) -> bool {
         if let Some(var) = self.lookup(name) {
-            *var.borrow_mut() = val;
+            *var.borrow_mut() = val.clone();
             true
         } else {
             false
@@ -59,7 +59,7 @@ impl Context {
             special: true,
             func,
         };
-        self.define_variable(name, form);
+        self.define_variable(name, &form);
     }
 
     pub fn define_proc(&mut self, name: &str, func: Function) {
@@ -68,7 +68,7 @@ impl Context {
             special: false,
             func,
         };
-        self.define_variable(name, proc);
+        self.define_variable(name, &proc);
     }
 
     pub fn lookup(&self, name: &str) -> Option<Rc<RefCell<Sexp>>> {
@@ -160,9 +160,9 @@ impl Context {
                 match vararg {
                     Some(sym) => {
                         for (k, v) in params.iter().zip(vals.iter()) {
-                            context.define_variable(k, (*v).clone());
+                            context.define_variable(k, v);
                         }
-                        let val = if nargs == nparams {
+                        let ref val = if nargs == nparams {
                             Nil
                         } else {
                             List(vals[nparams..].to_vec(), Rc::new(Nil))
@@ -171,7 +171,7 @@ impl Context {
                     }
                     _ => {
                         for (k, v) in params.iter().zip(vals.iter()) {
-                            context.define_variable(k, (*v).clone());
+                            context.define_variable(k, v);
                         }
                     }
                 }
@@ -255,7 +255,7 @@ impl<'a> fmt::Display for Sexp {
         use self::Sexp::*;
 
         match self {
-            Void => write!(f, ""),
+            Void => write!(f, "#<void>"),
             Nil => write!(f, "()"),
             True => write!(f, "#t"),
             False => write!(f, "#f"),
