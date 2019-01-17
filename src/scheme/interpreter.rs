@@ -45,8 +45,10 @@ impl Interpreter {
                             _ => {
                                 res_no += 1;
                                 let last_res = format!("${}", res_no);
-                                self.context.define_variable(&last_res, &val);
-                                println!("{} => {}", last_res, val);
+                                if self.context.lookup(&last_res).is_none() {
+                                    self.context.define_variable(&last_res, &val);
+                                }
+                                println!("{} = {}", last_res, val);
                             }
                         },
                         Err(err) => println!("{}", err),
