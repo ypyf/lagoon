@@ -257,7 +257,7 @@ impl<'a> fmt::Display for Sexp {
         use self::Sexp::*;
 
         match self {
-            Void => write!(f, "#<void>"),
+            Void => write!(f, ""),
             Nil => write!(f, "()"),
             True => write!(f, "#t"),
             False => write!(f, "#f"),
@@ -267,10 +267,10 @@ impl<'a> fmt::Display for Sexp {
             Str(n) => write!(f, "{:?}", n), // 字符串输出时显示双引号
             Function { name, .. } => write!(f, "#<procedure:{}>", name),
             Closure { name, .. } => {
-                if name.len() > 0 {
-                    write!(f, "#<procedure:{}>", name)
-                } else {
+                if name.is_empty() {
                     write!(f, "#<procedure>")
+                } else {
+                    write!(f, "#<procedure:{}>", name)
                 }
             }
             List(first, second) => {
