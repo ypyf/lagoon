@@ -7,7 +7,7 @@ use std::cell::RefCell;
 
 pub type LispResult = Result<Sexp, LispError>;
 
-type Env = Vec<HashMap<String, Sexp>>;
+type Env = Vec<HashMap<String, Rc<RefCell<Sexp>>>>;
 
 #[derive(Debug, Clone)]
 pub struct Context {
@@ -41,29 +41,39 @@ impl Context {
         self.env.borrow_mut().pop();
     }
 
-    pub fn define_variable(&mut self, name: &str, sexp: Sexp) {
-        self.env.borrow_mut().last_mut().unwrap().insert(name.to_owned(), sexp);
+    pub fn define_variable(&mut self, name: &str, expr: Sexp) {
+        let var = Rc::new(RefCell::new(expr));
+        self.env.borrow_mut().last_mut().unwrap().insert(name.to_owned(), var);
+    }
+
+    pub fn set_variable(&mut self, name: &str, val: Sexp) -> bool {
+        if let Some(var) = self.lookup(name) {
+            *var.borrow_mut() = val;
+            true
+        } else {
+            false
+        }
     }
 
     pub fn define_synatx(&mut self, name: &str, func: Function) {
-        let expr = Sexp::Function {
+        let form = Sexp::Function {
             name: name.to_owned(),
             special: true,
             func,
         };
-        self.env.borrow_mut().last_mut().unwrap().insert(name.to_owned(), expr);
+        self.define_variable(name, form);
     }
 
     pub fn define_proc(&mut self, name: &str, func: Function) {
-        let expr = Sexp::Function {
+        let proc = Sexp::Function {
             name: name.to_owned(),
             special: false,
             func,
         };
-        self.env.borrow_mut().last_mut().unwrap().insert(name.to_owned(), expr);
+        self.define_variable(name, proc);
     }
 
-    pub fn lookup(&self, name: &str) -> Option<Sexp> {
+    pub fn lookup(&self, name: &str) -> Option<Rc<RefCell<Sexp>>> {
         for current in self.env.borrow_mut().iter().rev() {
             if let Some(val) = current.get(name) {
                 return Some(val.clone());
@@ -79,7 +89,7 @@ impl Context {
         match expr {
             Symbol(name) => match self.lookup(name.as_str()) {
                 Some(val) => {
-                    Ok(val)
+                    Ok(val.borrow().clone())
                 }
                 None => Err(Undefined(name.to_string())),
             },
@@ -302,12 +312,12 @@ pub enum LispError {
     EndOfInput,
     Interrupted,
     ReadError(String),
+    AssignError(String, Context),
     BadSyntax(String, Option<String>, Context),
     Undefined(String),
     ApplyError(String),
     ArityMismatch(String, usize, usize),
     TypeMismatch(String, String),
-    NotImplemented(String),
 }
 
 impl fmt::Display for LispError {
@@ -318,6 +328,7 @@ impl fmt::Display for LispError {
             EndOfInput => write!(f, ""),
             Interrupted => write!(f, "User interrupt"),
             ReadError(err) => write!(f, "read: {}", err),
+            AssignError(err, _ctx) => write!(f, "set!: {}", err),
             BadSyntax(sym, err, ctx) => {
                 let msg = if let Some(e) = err {
                     format!("bad syntax ({})", e)
@@ -325,7 +336,7 @@ impl fmt::Display for LispError {
                     "bad syntax".to_owned()
                 };
                 write!(f, "{}: {}\n in: {}", sym, msg, ctx.get_current_expr())
-            },
+            }
             Undefined(sym) => write!(
                 f,
                 "{}: undefined;\n cannot reference undefined identifier",
@@ -338,7 +349,6 @@ impl fmt::Display for LispError {
                 sym, expected, given
             ),
             TypeMismatch(expected, given) => write!(f, "type mismatch: expected: {} given: {}", expected, given),
-            NotImplemented(sym) => write!(f, "{}: not implemented", sym),
         }
     }
 }
@@ -350,12 +360,12 @@ impl Error for LispError {
             EndOfInput => "end of input",
             Interrupted => "user interrupt",
             ReadError(_) => "read error",
+            AssignError(_, _) => "set! error",
             BadSyntax(_, _, _) => "bad syntax",
             Undefined(_) => "undefined identifier",
             ApplyError(_) => "application error",
             ArityMismatch(_, _, _) => "arity mismatch",
             TypeMismatch(_, _) => "type mismatch",
-            NotImplemented(_) => "not implemented",
         }
     }
 }

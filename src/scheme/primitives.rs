@@ -71,9 +71,9 @@ pub fn define(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
     if arity == 0 {
         return Err(BadSyntax("define".to_owned(), None, ctx.clone()));
     } else if arity == 1 {
-        return Err(BadSyntax("define".to_owned(), Some("missing expression after identifier".to_owned()), ctx.clone()))
+        return Err(BadSyntax("define".to_owned(), Some("missing expression after identifier".to_owned()), ctx.clone()));
     } else if arity > 2 {
-        return Err(BadSyntax("define".to_owned(), Some("multiple expressions after identifier".to_owned()), ctx.clone()))
+        return Err(BadSyntax("define".to_owned(), Some("multiple expressions after identifier".to_owned()), ctx.clone()));
     }
 
     match exprs[0].clone() {
@@ -84,7 +84,7 @@ pub fn define(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
                     let closure = Closure { name: sym.clone(), params, vararg, body, context };
                     ctx.define_variable(sym, closure);
                 }
-                _ => ctx.define_variable(sym, val.clone())
+                _ => ctx.define_variable(sym, val)
             }
             Ok(Void)
         }
@@ -121,10 +121,21 @@ pub fn define(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
 
 pub fn assign(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
     let arity = exprs.len();
-    if arity == 0 {
-        return Err(BadSyntax("set!".to_owned(), None, ctx.clone()));
+    if arity != 2 {
+        return Err(BadSyntax("set!".to_owned(), Some(format!("has {} parts after keyword", arity)), ctx.clone()));
     }
-    Err(NotImplemented("set!".to_owned()))
+
+    match exprs[0] {
+        Symbol(ref sym) => {
+            let val = ctx.eval(&exprs[1])?;
+            if ctx.set_variable(sym, val) {
+                Ok(Void)
+            } else {
+                return Err(AssignError("cannot set undefined".to_owned(), ctx.clone()));
+            }
+        }
+        _ => return Err(AssignError("not an identifier".to_owned(), ctx.clone())),
+    }
 }
 
 pub fn quote(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
