@@ -322,7 +322,7 @@ impl<'a> Reader<'a> {
             self.line = self.line.replacen(&cap[0], "", 1);
             match name_to_char(&cap[1]) {
                 Some(c) => return Ok(Char(c)),
-                None => return self.parse_error(format!("bad character constant: {}", &cap[0]).as_str()),
+                None => return self.parse_error(format!("unknown character name: {}", &cap[1]).as_str()),
             }
         }
 
