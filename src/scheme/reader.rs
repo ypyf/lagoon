@@ -5,6 +5,7 @@ extern crate dirs;
 use scheme::types::LispError;
 use scheme::types::LispResult;
 use scheme::types::Sexp;
+use scheme::types::name_to_char;
 
 use std::error::Error;
 use std::fmt;
@@ -425,36 +426,5 @@ impl<'a> Reader<'a> {
         self.scope = 0;
         self.string = false;
         Err(LispError::ReadError(err.to_owned()))
-    }
-}
-
-// TODO 补充完整ASCII中所有的不可打印字符
-// FIXME #\newline的编码应该根据平台决定是linefeed还是return
-// See also https://groups.csail.mit.edu/mac/ftpdir/scheme-7.4/doc-html/scheme_6.html
-fn name_to_char(name: &str) -> Option<char> {
-    // 字符名不区分大小写
-    match name.to_lowercase().as_str() {
-        "backspace" => Some('\x08'),
-        "space" => Some(' '),
-        "newline" => Some('\n'),
-        "return" => Some('\r'),
-        _ => if name.chars().count() == 1 {
-            // 单个unicode字符
-            name.chars().next()
-        } else {
-            None
-        }
-    }
-}
-
-// TODO 参看 name_to_char
-#[allow(dead_code)]
-fn char_to_name(ch: char) -> String {
-    match ch {
-        '\x08' => "backspace".to_owned(),
-        '\n' => "newline".to_owned(),
-        '\r' => "return".to_owned(),
-        ' ' => "space".to_owned(),
-        _ => ch.to_string(),
     }
 }

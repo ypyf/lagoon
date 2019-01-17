@@ -388,32 +388,45 @@ impl Error for LispError {
     }
 }
 
+// 把字符名称转换成ASCII
 // TODO 补充完整ASCII中所有的不可打印字符
-// FIXME newline应该根据平台决定是linefeed还是return
+// #\newline应该根据平台决定是#\linefeed还是#\return
 // See also https://groups.csail.mit.edu/mac/ftpdir/scheme-7.4/doc-html/scheme_6.html
-#[allow(dead_code)]
 pub fn name_to_char(name: &str) -> Option<char> {
-    if name.len() > 1 {
-        // 字符名不区分大小写
-        match name.to_lowercase().as_str() {
-            "backspace" => Some('\x08'),
-            "space" => Some(' '),
-            "newline" => Some('\n'),
-            "return" => Some('\r'),
-            _ => None,
+    match name.to_lowercase().as_str() {
+        "altmode" => Some('\x1b'), // ESC
+        "backnext" => Some('\x1f'), // US
+        "backspace" => Some('\x08'), // BS
+        "call" => Some('\x1a'), // SUB
+        "linefeed" => Some('\x0a'), // LF
+        "page" => Some('\x0c'), // FF
+        "return" => Some('\x0d'), // CR
+        "rubout" => Some('\x7f'), // DEL
+        "space" => Some('\x20'),
+        "tab" => Some('\x09'), // HT
+        "newline" => Some('\n'),
+        _ => if name.chars().count() == 1 {
+            // 单个unicode字符
+            name.chars().next()
+        } else {
+            None
         }
-    } else {
-        name.chars().next()
     }
 }
 
-// TODO 参看 name_to_char
+// 把字符转换成对应的名称
 pub fn char_to_name(ch: char) -> String {
     match ch {
-        '\x08' => "backspace".to_owned(),
-        '\n' => "newline".to_owned(),
-        '\r' => "return".to_owned(),
-        ' ' => "space".to_owned(),
+        '\x1b' => "altmode".to_string(),
+        '\x1f' => "backnext".to_string(),
+        '\x08' => "backspace".to_string(),
+        '\x1a' => "call".to_string(),
+        '\x0c' => "page".to_string(),
+        '\x0d' => "return".to_string(),
+        '\x7f' => "rubout".to_string(),
+        '\x20' => "space".to_string(),
+        '\x09' => "tab".to_string(),
+        '\n' => "newline".to_string(),
         _ => ch.to_string(),
     }
 }
