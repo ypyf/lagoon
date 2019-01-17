@@ -15,14 +15,12 @@ pub struct Context {
     current: Rc<Sexp>,
 }
 
-#[allow(dead_code)]
 impl Context {
     pub fn new() -> Self {
-        Context { env: Rc::new(RefCell::new(Env::new())), current: Rc::new(Sexp::Void) }
-    }
-
-    pub fn get_env(&self) -> Env {
-        self.env.borrow().clone()
+        Context {
+            env: Rc::new(RefCell::new(Env::new())),
+            current: Rc::new(Sexp::Void)
+        }
     }
 
     pub fn get_current_expr(&self) -> Rc<Sexp> {
@@ -115,12 +113,12 @@ impl Context {
         match proc {
             Function { name: _, special, func } => {
                 if special {
-                    if *args.last().unwrap() == Sexp::Nil {
+                    if *args.last().unwrap() == Nil {
                         args.pop();
                     }
                     func(self, args)
                 } else {
-                    if *args.last().unwrap() != Sexp::Nil {
+                    if *args.last().unwrap() != Nil {
                         return Err(BadSyntax("apply".to_owned(), None, self.clone()));
                     }
                     args.pop();
@@ -133,7 +131,7 @@ impl Context {
                 }
             }
             Closure { name, params, vararg, body, mut context } => {
-                if *args.last().unwrap() != Sexp::Nil {
+                if *args.last().unwrap() != Nil {
                     return Err(BadSyntax("apply".to_owned(), None, self.clone()));
                 }
                 args.pop();

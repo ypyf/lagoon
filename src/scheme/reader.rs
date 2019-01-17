@@ -264,14 +264,14 @@ impl<'a> Reader<'a> {
     }
 
     fn lookahead(&mut self) -> Result<Token, LispError> {
-        return if self.lookahead.is_some() {
+        if self.lookahead.is_some() {
             let token = self.lookahead.clone();
             Ok(token.unwrap())
         } else {
             let token = self.next_token()?;
             self.lookahead = Some(token.clone());
             Ok(token)
-        };
+        }
     }
 
     fn next_token(&mut self) -> Result<Token, LispError> {
