@@ -65,22 +65,17 @@ impl Interpreter {
         self.ctx.def_synatx("lambda", basic::lambda);
     }
 
+    // 运行解释器
+    // 只打印错误消息，不回显正确结果
     pub fn run(&mut self, reader: Reader) {
         self.ctx.enter_scope();
         self.init_globals();
-        for expr in reader {
-            match expr {
-                Ok(sexp) => {
-                    let result = self.ctx.eval(&sexp);
-                    match result {
-                        Ok(val) => match val {
-                            Sexp::Void => (),
-                            _ => println!("{}", val),
-                        },
-                        Err(err) => println!("{}", err),
-                    }
+        for item in reader {
+            match item {
+                Ok(expr) => if let Some(err) = self.ctx.eval(&expr).err() {
+                    eprintln!("{}", err)
                 }
-                Err(err) => println!("{}", err),
+                Err(err) => eprintln!("{}", err)
             }
         }
     }
@@ -105,11 +100,11 @@ impl Interpreter {
                                 println!("{} = {}", last_res, val);
                             }
                         },
-                        Err(err) => println!("{}", err),
+                        Err(err) => eprintln!("{}", err),
                     }
                 }
                 Err(LispError::EndOfInput) => break,
-                Err(err) => println!("{}", err),
+                Err(err) => eprintln!("{}", err),
             }
         }
     }
