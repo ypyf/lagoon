@@ -16,8 +16,8 @@ pub fn define(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
         return Err(BadSyntax("define".to_owned(), Some("multiple expressions after identifier".to_owned()), ctx.clone()));
     }
 
-    match exprs[0].clone() {
-        Symbol(ref sym) => {
+    match &exprs[0] {
+        Symbol(sym) => {
             let val = ctx.eval(&exprs[1])?;
             match val {
                 Closure { name: _, params, vararg, body, context } => {
@@ -29,7 +29,7 @@ pub fn define(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
             Ok(Void)
         }
         List(init, last) => {
-            match *last {
+            match **last {
                 // (define (name x y) (+ x y)) => (define name (lambda (x y) (+ x y)))
                 Nil => {
                     let expr = if let Some((name, params)) = init.split_first() {
@@ -65,8 +65,8 @@ pub fn assign(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
         return Err(BadSyntax("set!".to_owned(), Some(format!("has {} parts after keyword", arity)), ctx.clone()));
     }
 
-    match exprs[0] {
-        Symbol(ref sym) => {
+    match &exprs[0] {
+        Symbol(sym) => {
             let val = ctx.eval(&exprs[1])?;
             if ctx.set_variable(sym, &val) {
                 Ok(Void)
@@ -87,8 +87,6 @@ pub fn quote(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
 }
 
 pub fn lambda(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
-    use scheme::types::Sexp::*;
-
     let arity = exprs.len();
     if arity == 0 {
         return Err(BadSyntax("lambda".to_owned(), None, ctx.clone()));
@@ -96,7 +94,7 @@ pub fn lambda(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
         return Err(BadSyntax("body".to_owned(), Some("no expression in body".to_owned()), ctx.clone()));
     }
 
-    match exprs[0] {
+    match &exprs[0] {
         Nil => Ok(Closure {
             name: String::new(),
             params: vec![],
@@ -104,10 +102,10 @@ pub fn lambda(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
             body: exprs[1..].to_vec(),
             context: (*ctx).clone(),
         }),
-        List(ref init, ref last) => {
-            let vararg = match (*(*last)).clone() {
+        List(init, last) => {
+            let vararg = match **last {
                 Nil => None,
-                Symbol(sym) => Some(sym.clone()),
+                Symbol(ref sym) => Some(sym.clone()),
                 _ => return Err(BadSyntax("lambda".to_owned(), Some("not an identifier".to_owned()), ctx.clone())),
             };
             let mut params = vec![];
@@ -125,7 +123,7 @@ pub fn lambda(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
                 context: (*ctx).clone(),
             })
         }
-        Symbol(ref sym) => {
+        Symbol(sym) => {
             Ok(Closure {
                 name: String::new(),
                 params: vec![],

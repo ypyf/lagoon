@@ -1,5 +1,5 @@
 use scheme::procedure::basic;
-use scheme::procedure::numeric::{numeric_binop, bool_binop};
+use scheme::procedure::numeric;
 use scheme::procedure::numeric::Operator::*;
 use scheme::procedure::string;
 use scheme::procedure::predicate;
@@ -27,15 +27,15 @@ impl Interpreter {
     }
 
     fn init_globals(&mut self) {
-        self.ctx.def_proc("+", |ctx, args| numeric_binop(Add, ctx, args));
-        self.ctx.def_proc("-", |ctx, args| numeric_binop(Sub, ctx, args));
-        self.ctx.def_proc("*", |ctx, args| numeric_binop(Mul, ctx, args));
-        self.ctx.def_proc("/", |ctx, args| numeric_binop(Div, ctx, args));
-        self.ctx.def_proc("=", |ctx, args| bool_binop("=", |x, y| x == y, ctx, args));
-        self.ctx.def_proc("<", |ctx, args| bool_binop("<", |x, y| x < y, ctx, args));
-        self.ctx.def_proc(">", |ctx, args| bool_binop(">", |x, y| x > y, ctx, args));
-        self.ctx.def_proc("<=", |ctx, args| bool_binop("<=", |x, y| x <= y, ctx, args));
-        self.ctx.def_proc(">=", |ctx, args| bool_binop(">=", |x, y| x >= y, ctx, args));
+        self.ctx.def_proc("+", |ctx, args| numeric::arith_op(Add, ctx, args));
+        self.ctx.def_proc("-", |ctx, args| numeric::arith_op(Sub, ctx, args));
+        self.ctx.def_proc("*", |ctx, args| numeric::arith_op(Mul, ctx, args));
+        self.ctx.def_proc("/", |ctx, args| numeric::arith_op(Div, ctx, args));
+        self.ctx.def_proc("=", |ctx, args| numeric::compare("=", |x, y| x == y, ctx, args));
+        self.ctx.def_proc("<", |ctx, args| numeric::compare("<", |x, y| x < y, ctx, args));
+        self.ctx.def_proc(">", |ctx, args| numeric::compare(">", |x, y| x > y, ctx, args));
+        self.ctx.def_proc("<=", |ctx, args| numeric::compare("<=", |x, y| x <= y, ctx, args));
+        self.ctx.def_proc(">=", |ctx, args| numeric::compare(">=", |x, y| x >= y, ctx, args));
         self.ctx.def_proc("char=?", |ctx, args| character::compare("char=?", |x, y| x == y, ctx, args));
         self.ctx.def_proc("char<?", |ctx, args| character::compare("char<?", |x, y| x < y, ctx, args));
         self.ctx.def_proc("char>?", |ctx, args| character::compare("char>?", |x, y| x > y, ctx, args));

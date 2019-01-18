@@ -30,7 +30,7 @@ impl fmt::Display for Operator {
     }
 }
 
-pub fn numeric_binop(op: Operator, _context: &mut Context, args: Vec<Sexp>) -> LispResult {
+pub fn arith_op(op: Operator, _context: &mut Context, args: Vec<Sexp>) -> LispResult {
     use self::Operator::*;
     // 检查参数类型
     let mut vals = Vec::with_capacity(args.len());
@@ -60,7 +60,7 @@ pub fn numeric_binop(op: Operator, _context: &mut Context, args: Vec<Sexp>) -> L
     Ok(Number(res))
 }
 
-pub fn bool_binop<F>(name: &str, op: F, _context: &mut Context, args: Vec<Sexp>) -> LispResult where
+pub fn compare<F>(name: &str, op: F, _context: &mut Context, args: Vec<Sexp>) -> LispResult where
     F: Fn(i64, i64) -> bool {
     let mut vals = Vec::with_capacity(args.len());
     for arg in args {
@@ -80,10 +80,9 @@ pub fn bool_binop<F>(name: &str, op: F, _context: &mut Context, args: Vec<Sexp>)
         acc = acc && op(vals[i], vals[i + 1])
     }
 
-    let res = if acc {
-        True
+    if acc {
+        Ok(True)
     } else {
-        False
-    };
-    Ok(res)
+        Ok(False)
+    }
 }
