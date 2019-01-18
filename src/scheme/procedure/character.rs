@@ -30,10 +30,9 @@ pub fn compare<F>(name: &str, op: F, _context: &mut Context, args: Vec<Sexp>) ->
         acc = acc && op(vals[i], vals[i + 1])
     }
 
-    let res = if acc {
-        True
+    if acc {
+        Ok(True)
     } else {
-        False
-    };
-    Ok(res)
+        Ok(False)
+    }
 }

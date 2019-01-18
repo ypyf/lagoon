@@ -149,12 +149,6 @@ impl Context {
                 }
                 args.pop();
 
-                let mut vals = Vec::with_capacity(args.len());
-                for arg in &args {
-                    let val = self.eval(&arg)?;
-                    vals.push(val);
-                }
-
                 let func_name = if name.is_empty() {
                     "#<procedure>".to_string()
                 } else {
@@ -169,6 +163,13 @@ impl Context {
                 } else if nargs != nparams && vararg.is_none() {
                     return Err(ArityMismatch(func_name, nparams, nargs));
                 }
+
+                let mut vals = Vec::with_capacity(args.len());
+                for arg in &args {
+                    let val = self.eval(arg)?;
+                    vals.push(val);
+                }
+
                 context.enter_scope();
                 match vararg {
                     Some(sym) => {
