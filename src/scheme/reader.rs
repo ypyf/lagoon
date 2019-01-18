@@ -7,14 +7,14 @@ use scheme::types::name_to_char;
 
 use std::error::Error;
 use std::fmt;
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::str;
+use std::fs::File;
+use std::process::exit;
 
 use self::regex::Regex;
-use std::fs::File;
-use std::io::BufReader;
 
 
 #[derive(Debug, PartialEq, Clone)]
@@ -37,7 +37,7 @@ impl fmt::Display for Token {
         use self::Token::*;
 
         match self {
-            EOI => write!(f, "#<end-of-input>"),
+            EOI => write!(f, "end-of-input"),
             Quote => write!(f, "'"),
             Quasiquote => write!(f, "`"),
             Unquote => write!(f, ","),
@@ -57,10 +57,6 @@ pub struct Reader<'a> {
     re_string: Regex,
     re_char: Regex,
     re_symbol: Regex,
-    input: Box<BufRead + 'a>,
-    interactive: bool,
-    ps1: &'a str,
-    ps2: &'a str,
     // 嵌套深度
     scope: isize,
     // 偷看
@@ -69,6 +65,10 @@ pub struct Reader<'a> {
     string: bool,
     // 当前行
     line: String,
+    input: Box<BufRead + 'a>,
+    interactive: bool,
+    ps1: &'a str,
+    ps2: &'a str,
 }
 
 impl Iterator for Reader<'_> {
@@ -84,59 +84,44 @@ impl Iterator for Reader<'_> {
 
 #[allow(dead_code)]
 impl<'a> Reader<'a> {
-    pub fn from_stdin() -> Self {
-        let reader = BufReader::new(io::stdin());
+    pub fn new(input: Box<BufRead + 'a>, interactive: bool, ps1: &'a str, ps2: &'a str) -> Self {
         Reader {
             re_string: Regex::new(r#"^"((\\.|[^"])*)""#).unwrap(),
             re_char: Regex::new(r"^#\\(\S[^()\[\]\s]*|\s)").unwrap(),
             re_number: Regex::new(r"^[-+]?\d+").unwrap(),
             re_symbol: Regex::new(r"^[^#;'`,\s()][^#;'`,\s()]*").unwrap(),
-            interactive: true,
-            input: Box::new(reader),
-            ps1: "scheme> ",
-            ps2: "",
             scope: 0,
             lookahead: None,
             string: false,
             line: String::new(),
+            interactive,
+            input,
+            ps1,
+            ps2,
         }
     }
 
+    pub fn from_stdin() -> Self {
+        let reader = Box::new(BufReader::new(io::stdin()));
+        Reader::new(reader, true, "scheme> ", "")
+    }
+
     pub fn from_file(path: &'a str) -> Self {
-        let file = File::open(path).expect("no such file or directory");
-        let reader = BufReader::new(file);
-        Reader {
-            re_string: Regex::new(r#"^"((\\.|[^"])*)""#).unwrap(),
-            re_char: Regex::new(r"^#\\(\S[^()\[\]\s]*|\s)").unwrap(),
-            re_number: Regex::new(r"^[-+]?\d+").unwrap(),
-            re_symbol: Regex::new(r"^[^#;'`,\s()][^#;'`,\s()]*").unwrap(),
-            interactive: false,
-            input: Box::new(reader),
-            ps1: "scheme> ",
-            ps2: "",
-            scope: 0,
-            lookahead: None,
-            string: false,
-            line: String::new(),
-        }
+        let file = match File::open(path) {
+            Ok(file) => file,
+            Err(err) => {
+                eprintln!("lagoon: {}: '{}'", err, path);
+                exit(1)
+            }
+        };
+        let reader = Box::new(BufReader::new(file));
+        Reader::new(reader, false, "", "")
     }
 
     pub fn from_string(string: &'a str) -> Self {
         use std::io::Cursor;
-        Reader {
-            re_string: Regex::new(r#"^"((\\.|[^"])*)""#).unwrap(),
-            re_char: Regex::new(r"^#\\(\S[^()\[\]\s]*|\s)").unwrap(),
-            re_number: Regex::new(r"^[-+]?\d+").unwrap(),
-            re_symbol: Regex::new(r"^[^#;'`,\s()][^#;'`,\s()]*").unwrap(),
-            interactive: false,
-            input: Box::new(Cursor::new(string)),
-            ps1: "scheme> ",
-            ps2: "",
-            scope: 0,
-            lookahead: None,
-            string: false,
-            line: String::new(),
-        }
+        let reader = Box::new(Cursor::new(string));
+        Reader::new(reader, false, "", "")
     }
 
     pub fn set_prompt(&mut self, ps1: &'a str, ps2: &'a str) {
