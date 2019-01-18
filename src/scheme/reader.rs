@@ -1,6 +1,4 @@
 extern crate regex;
-extern crate rustyline;
-extern crate dirs;
 
 use scheme::types::LispError;
 use scheme::types::LispResult;
@@ -9,15 +7,15 @@ use scheme::types::name_to_char;
 
 use std::error::Error;
 use std::fmt;
-use std::path::PathBuf;
+use std::io::{self, BufRead, Write};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::str;
 
 use self::regex::Regex;
-use self::rustyline::error::ReadlineError;
-use self::rustyline::Editor;
-use self::rustyline::config::Configurer;
+use std::fs::File;
+use std::io::BufReader;
+
 
 #[derive(Debug, PartialEq, Clone)]
 enum Token {
@@ -57,8 +55,8 @@ pub struct Reader<'a> {
     re_string: Regex,
     re_char: Regex,
     re_symbol: Regex,
-    use_stdin: bool,
-    readline: Editor<()>,
+    input: Box<BufRead + 'a>,
+    interactive: bool,
     ps1: &'a str,
     ps2: &'a str,
     // 嵌套深度
@@ -69,9 +67,6 @@ pub struct Reader<'a> {
     string: bool,
     // 当前行
     line: String,
-    // 历史文件路径
-    history: PathBuf,
-
 }
 
 impl Iterator for Reader<'_> {
@@ -86,40 +81,64 @@ impl Iterator for Reader<'_> {
 
 #[allow(dead_code)]
 impl<'a> Reader<'a> {
-    pub fn new() -> Self {
-        let mut rl = Editor::<()>::new();
-        let home_dir = dirs::home_dir().unwrap();
-        let history = home_dir.join(".lagoon_history");
-        if history.exists() {
-            rl.load_history(&history).unwrap();
-        }
-        rl.set_auto_add_history(true);
-        rl.set_history_ignore_dups(true);
-        rl.set_history_ignore_space(true);
+    pub fn from_stdin() -> Self {
+        let reader = BufReader::new(io::stdin());
         Reader {
             re_string: Regex::new(r#"^"((\\.|[^"])*)""#).unwrap(),
             re_char: Regex::new(r"^#\\(\S[^()\[\]\s]*|\s)").unwrap(),
             re_number: Regex::new(r"^[-+]?\d+").unwrap(),
             re_symbol: Regex::new(r"^[^#;'`,\s()][^#;'`,\s()]*").unwrap(),
-            use_stdin: false,
+            interactive: true,
+            input: Box::new(reader),
             ps1: "scheme> ",
             ps2: "",
             scope: 0,
             lookahead: None,
             string: false,
-            readline: rl,
             line: String::new(),
-            history,
+        }
+    }
+
+    pub fn from_file(path: &'a str) -> Self {
+        let file = File::open(path).expect("no such file or directory");
+        let reader = BufReader::new(file);
+        Reader {
+            re_string: Regex::new(r#"^"((\\.|[^"])*)""#).unwrap(),
+            re_char: Regex::new(r"^#\\(\S[^()\[\]\s]*|\s)").unwrap(),
+            re_number: Regex::new(r"^[-+]?\d+").unwrap(),
+            re_symbol: Regex::new(r"^[^#;'`,\s()][^#;'`,\s()]*").unwrap(),
+            interactive: false,
+            input: Box::new(reader),
+            ps1: "scheme> ",
+            ps2: "",
+            scope: 0,
+            lookahead: None,
+            string: false,
+            line: String::new(),
+        }
+    }
+
+    pub fn from_string(string: &'a str) -> Self {
+        use std::io::Cursor;
+        Reader {
+            re_string: Regex::new(r#"^"((\\.|[^"])*)""#).unwrap(),
+            re_char: Regex::new(r"^#\\(\S[^()\[\]\s]*|\s)").unwrap(),
+            re_number: Regex::new(r"^[-+]?\d+").unwrap(),
+            re_symbol: Regex::new(r"^[^#;'`,\s()][^#;'`,\s()]*").unwrap(),
+            interactive: false,
+            input: Box::new(Cursor::new(string)),
+            ps1: "scheme> ",
+            ps2: "",
+            scope: 0,
+            lookahead: None,
+            string: false,
+            line: String::new(),
         }
     }
 
     pub fn set_prompt(&mut self, ps1: &'a str, ps2: &'a str) {
         self.ps1 = ps1;
         self.ps2 = ps2;
-    }
-
-    pub fn set_stdio(&mut self, flag: bool) {
-        self.use_stdin = flag;
     }
 
     pub fn read(&mut self) -> LispResult {
@@ -238,30 +257,26 @@ impl<'a> Reader<'a> {
         x.to_owned()
     }
 
-    // 打印提示符并读取输入
     fn read_line(&mut self, continue_read: bool) -> Result<String, LispError> {
         let mut line = Reader::skip_whitespace(&self.line);
         while line.is_empty() {
-            let prompt = if self.scope == 0 && !continue_read && !self.string {
-                &self.ps1
-            } else {
-                &self.ps2
-            };
-            match self.readline.readline(prompt) {
-                Ok(input) => {
-                    line = input;
-                    line.push('\n');
-                    if !self.string {
-                        line = Reader::skip_whitespace(&line);
-                    }
-                }
-                Err(ReadlineError::Interrupted) => return Err(LispError::Interrupted),
-                Err(ReadlineError::Eof) => return Err(LispError::EndOfInput),
-                // TODO use a distinct error type
-                Err(err) => panic!(err),
-            };
+            if self.interactive {
+                let prompt = if self.scope == 0 && !continue_read && !self.string {
+                    &self.ps1
+                } else {
+                    &self.ps2
+                };
+                print!("{}", prompt);
+                io::stdout().flush().unwrap();
+            }
+            self.input.read_line(&mut line).map_err(|err| panic!(err)).unwrap();
+            if line.is_empty() {
+                return Err(LispError::EndOfInput);
+            }
+            if !self.string {
+                line = Reader::skip_whitespace(&line);
+            }
         }
-        self.readline.save_history(&self.history).unwrap();
         Ok(line.to_owned())
     }
 

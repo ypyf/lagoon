@@ -11,8 +11,6 @@ use scheme::types::Context;
 use scheme::types::LispError;
 use scheme::types::Sexp;
 
-use std::fs::File;
-use std::io::BufReader;
 use std::rc::Rc;
 
 pub struct Interpreter {
@@ -67,13 +65,32 @@ impl Interpreter {
         self.ctx.def_synatx("lambda", basic::lambda);
     }
 
+    pub fn run(&mut self, reader: Reader) {
+        self.ctx.enter_scope();
+        self.init_globals();
+        for expr in reader {
+            match expr {
+                Ok(sexp) => {
+                    let result = self.ctx.eval(&sexp);
+                    match result {
+                        Ok(val) => match val {
+                            Sexp::Void => (),
+                            _ => println!("{}", val),
+                        },
+                        Err(err) => println!("{}", err),
+                    }
+                }
+                Err(err) => println!("{}", err),
+            }
+        }
+    }
+
     pub fn run_repl(&mut self) {
         let mut res_no = 0;
         self.ctx.enter_scope();
         self.init_globals();
-        let mut reader = Reader::new();
-        loop {
-            match reader.read() {
+        for expr in Reader::from_stdin() {
+            match expr {
                 Ok(ref sexp) => {
                     self.ctx.set_current_expr(Rc::new(sexp.clone()));
                     match self.ctx.eval(sexp) {
@@ -98,26 +115,10 @@ impl Interpreter {
     }
 
     pub fn run_once(&mut self, path: &str) {
-        let file = File::open(path).expect("no such file or directory");
-        let mut _reader = BufReader::new(file);
-        let mut lisp_reader = Reader::new();
-        self.ctx.enter_scope();
-        self.init_globals();
-        loop {
-            match lisp_reader.read() {
-                Ok(sexp) => {
-                    let result = self.ctx.eval(&sexp);
-                    match result {
-                        Ok(val) => match val {
-                            Sexp::Void => (),
-                            _ => println!("{}", val),
-                        },
-                        Err(err) => println!("{}", err),
-                    }
-                }
-                Err(LispError::EndOfInput) => break,
-                Err(err) => println!("{}", err),
-            }
-        }
+        self.run(Reader::from_file(path))
+    }
+
+    pub fn eval_string(&mut self, string: &str) {
+        self.run(Reader::from_string(string))
     }
 }

@@ -295,16 +295,16 @@ impl<'a> fmt::Display for Sexp {
                     datum.push_str(format!("{} ", expr).as_str());
                 }
 
-                let mut exprs = (*second).clone();
+                let mut exprs = second.clone();
                 loop {
-                    match (*exprs).clone() {
-                        List(init, last) => {
+                    match *exprs {
+                        Nil => break,
+                        List(ref init, ref last) => {
                             for expr in init.iter() {
                                 datum.push_str(format!("{} ", expr).as_str());
                             }
-                            exprs = last;
+                            exprs = last.clone();
                         }
-                        Nil => { break; }
                         _ => {
                             datum.push_str(format!(". {} ", exprs).as_str());
                             break;
