@@ -326,6 +326,7 @@ impl<'a> fmt::Display for Sexp {
 pub enum LispError {
     EndOfInput,
     Interrupted,
+    DivisionByZero(String),
     ReadError(String),
     AssignError(String, Context),
     BadSyntax(String, Option<String>, Context),
@@ -343,6 +344,7 @@ impl fmt::Display for LispError {
         match self {
             EndOfInput => write!(f, ""),
             Interrupted => write!(f, "User interrupt"),
+            DivisionByZero(sym) => write!(f, "{}: division by zero", sym),
             ReadError(err) => write!(f, "read: {}", err),
             AssignError(err, _ctx) => write!(f, "set!: {}", err),
             BadSyntax(sym, err, ctx) => {
@@ -377,6 +379,7 @@ impl Error for LispError {
         match self {
             EndOfInput => "end of input",
             Interrupted => "user interrupt",
+            DivisionByZero(_) => "division by zero",
             ReadError(_) => "read error",
             AssignError(_, _) => "set! error",
             BadSyntax(_, _, _) => "bad syntax",

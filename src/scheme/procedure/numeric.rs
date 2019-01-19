@@ -54,6 +54,9 @@ pub fn arith_op(op: Operator, _context: &mut Context, args: Vec<Sexp>) -> LispRe
             if arity == 0 {
                 return Err(ArityMismatch(op.to_string(), 1, arity));
             }
+            if vals[1..].iter().map(|&x| x == 0).fold(false, |acc, b| acc || b) {
+                return Err(DivisionByZero("/".to_owned()));
+            }
             vals.into_iter().fold1(ops::Div::div).unwrap()
         }
     };
