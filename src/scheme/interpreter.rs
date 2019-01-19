@@ -67,6 +67,7 @@ impl Interpreter {
         self.ctx.def_synatx("set!", basic::assign);
         self.ctx.def_synatx("quote", basic::quote);
         self.ctx.def_synatx("lambda", basic::lambda);
+        self.ctx.def_synatx("if", basic::if_exp);
     }
 
     // 运行解释器

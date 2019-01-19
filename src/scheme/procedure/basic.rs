@@ -6,6 +6,14 @@ use scheme::types::Sexp::*;
 
 use std::rc::Rc;
 
+pub fn quote(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
+    let arity = exprs.len();
+    if arity != 1 {
+        return Err(BadSyntax("quote".to_owned(), None, ctx.clone()));
+    }
+    Ok(exprs[0].clone())
+}
+
 pub fn define(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
     let arity = exprs.len();
     if arity == 0 {
@@ -78,14 +86,6 @@ pub fn assign(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
     }
 }
 
-pub fn quote(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
-    let arity = exprs.len();
-    if arity != 1 {
-        return Err(BadSyntax("quote".to_owned(), None, ctx.clone()));
-    }
-    Ok(exprs[0].clone())
-}
-
 pub fn lambda(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
     let arity = exprs.len();
     if arity == 0 {
@@ -133,5 +133,33 @@ pub fn lambda(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
             })
         }
         _ => return Err(BadSyntax("lambda".to_owned(), Some("not an identifier".to_owned()), ctx.clone())),
+    }
+}
+
+pub fn if_exp(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult {
+    let arity = exprs.len();
+    if arity < 2 || arity > 3 {
+        return Err(BadSyntax("if".to_owned(), None, ctx.clone()));
+    }
+
+    if arity == 2 {
+        let pred = &exprs[0];
+        let conseq = &exprs[1];
+        match ctx.eval(pred) {
+            // 只有False是假值
+            Ok(False) => Ok(Void),
+            Ok(_) => ctx.eval(conseq),  // FIXME 尾部
+            Err(err) => Err(err),
+        }
+    } else {
+        let pred = &exprs[0];
+        let conseq = &exprs[1];
+        let alt = &exprs[2];
+        match ctx.eval(pred) {
+            // 只有False是假值
+            Ok(False) => ctx.eval(alt), // FIXME 尾部
+            Ok(_) => ctx.eval(conseq),  // FIXME 尾部
+            Err(err) => Err(err),
+        }
     }
 }
