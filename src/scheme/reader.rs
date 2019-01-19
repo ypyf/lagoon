@@ -7,19 +7,17 @@ use scheme::types::name_to_char;
 
 use std::error::Error;
 use std::fmt;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, Stdin, BufRead, Write};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::str;
-use std::fs::File;
-use std::process::exit;
 
 use self::regex::Regex;
 
 
 #[derive(Debug, PartialEq, Clone)]
 enum Token {
-    EOI,
+    EndOfFile,
     Quote,
     Quasiquote,
     Unquote,
@@ -37,7 +35,7 @@ impl fmt::Display for Token {
         use self::Token::*;
 
         match self {
-            EOI => write!(f, "end-of-input"),
+            EndOfFile => write!(f, "#<eof>"),
             Quote => write!(f, "'"),
             Quasiquote => write!(f, "`"),
             Unquote => write!(f, ","),
@@ -65,8 +63,8 @@ pub struct Reader<'a> {
     string: bool,
     // 当前行
     line: String,
-    input: Box<BufRead + 'a>,
-    interactive: bool,
+    stdin: Stdin,
+    input: Option<&'a mut BufRead>,
     ps1: &'a str,
     ps2: &'a str,
 }
@@ -84,7 +82,7 @@ impl Iterator for Reader<'_> {
 
 #[allow(dead_code)]
 impl<'a> Reader<'a> {
-    pub fn new(input: Box<BufRead + 'a>, interactive: bool, ps1: &'a str, ps2: &'a str) -> Self {
+    pub fn new() -> Self {
         Reader {
             re_string: Regex::new(r#"^"((\\.|[^"])*)""#).unwrap(),
             re_char: Regex::new(r"^#\\(\S[^()\[\]\s]*|\s)").unwrap(),
@@ -94,34 +92,15 @@ impl<'a> Reader<'a> {
             lookahead: None,
             string: false,
             line: String::new(),
-            interactive,
-            input,
-            ps1,
-            ps2,
+            stdin: io::stdin(),
+            input: None,
+            ps1: "scheme> ",
+            ps2: "",
         }
     }
 
-    pub fn from_stdin() -> Self {
-        let reader = Box::new(BufReader::new(io::stdin()));
-        Reader::new(reader, true, "scheme> ", "")
-    }
-
-    pub fn from_file(path: &'a str) -> Self {
-        let file = match File::open(path) {
-            Ok(file) => file,
-            Err(err) => {
-                eprintln!("lagoon: {}: '{}'", err, path);
-                exit(1)
-            }
-        };
-        let reader = Box::new(BufReader::new(file));
-        Reader::new(reader, false, "", "")
-    }
-
-    pub fn from_string(string: &'a str) -> Self {
-        use std::io::Cursor;
-        let reader = Box::new(Cursor::new(string));
-        Reader::new(reader, false, "", "")
+    pub fn set_input(&mut self, input: &'a mut BufRead) {
+        self.input = Some(input);
     }
 
     pub fn set_prompt(&mut self, ps1: &'a str, ps2: &'a str) {
@@ -146,10 +125,10 @@ impl<'a> Reader<'a> {
         loop {
             let token = self.next_token()?;
             match token {
-                Token::EOI => if list_level < 0 {
-                    return self.parse_error("unexpected `)'");
+                Token::EndOfFile => if list_level < 0 {
+                    return self.read_error("unexpected `)'");
                 } else if list_level > 0 {
-                    return self.parse_error("expected a `)' to close `('");
+                    return self.read_error("expected a `)' to close `('");
                 } else {
                     return Err(LispError::EndOfInput);
                 }
@@ -170,7 +149,7 @@ impl<'a> Reader<'a> {
                 }
                 Token::Rune(')') => {
                     if list_level == 0 {
-                        return self.parse_error(format!("unexpected `{}'", token).as_str());
+                        return self.read_error(format!("unexpected `{}'", token).as_str());
                     }
                     list_level -= 1;
 
@@ -203,13 +182,13 @@ impl<'a> Reader<'a> {
                 }
                 Token::Rune('.') => {
                     if list_level == 0 || dot_count > 0 || self.lookahead()? == Token::Rune(')') {
-                        return self.parse_error("illegal use of `.'");
+                        return self.read_error("illegal use of `.'");
                     }
                     dot_count += 1
                 }
                 _ => {
                     if dot_count > 0 && self.lookahead()? != Token::Rune(')') {
-                        return self.parse_error("illegal use of `.'");
+                        return self.read_error("illegal use of `.'");
                     }
                     let expr = self.read_atom(token)?;
                     if list_level == 0 {
@@ -239,7 +218,7 @@ impl<'a> Reader<'a> {
             Token::Char(lex) => Ok(Sexp::Char(lex)),
             Token::Symbol(lex) => Ok(Sexp::Symbol(lex)),
             Token::Pound(lex) => self.parse_pound(lex.as_str()),
-            _ => self.parse_error(format!("unexpected `{}'", token).as_str()),
+            _ => self.read_error(format!("unexpected `{}'", token).as_str()),
         }
     }
 
@@ -255,7 +234,9 @@ impl<'a> Reader<'a> {
     fn read_line(&mut self, continue_read: bool) -> Result<String, LispError> {
         let mut line = Reader::skip_whitespace(&self.line);
         while line.is_empty() {
-            if self.interactive {
+            let ret = if let Some(ref mut input) = self.input {
+                input.read_line(&mut line)
+            } else {
                 let prompt = if self.scope == 0 && !continue_read && !self.string {
                     &self.ps1
                 } else {
@@ -263,8 +244,13 @@ impl<'a> Reader<'a> {
                 };
                 print!("{}", prompt);
                 io::stdout().flush().unwrap();
+                self.stdin.lock().read_line(&mut line)
+            };
+
+            if let Err(err) = ret {
+                return Err(LispError::ReadError(err.to_string()));
             }
-            self.input.read_line(&mut line).map_err(|err| panic!(err)).unwrap();
+
             if line.is_empty() {
                 return Err(LispError::EndOfInput);
             }
@@ -297,7 +283,7 @@ impl<'a> Reader<'a> {
 
         match self.read_line(false) {
             Ok(line) => self.line = line.to_owned(),
-            Err(LispError::EndOfInput) => return Ok(EOI),
+            Err(LispError::EndOfInput) => return Ok(EndOfFile),
             Err(err) => return Err(err)
         }
 
@@ -316,7 +302,7 @@ impl<'a> Reader<'a> {
                 self.line.clear();
                 match self.read_line(false) {
                     Ok(line) => self.line = line.to_owned(),
-                    Err(LispError::EndOfInput) => return self.parse_eof("a closing '\"'"),
+                    Err(LispError::EndOfInput) => return self.read_error_eof("a closing '\"'"),
                     Err(err) => return Err(err)
                 }
                 buffer.push_str(self.line.as_str());
@@ -334,7 +320,7 @@ impl<'a> Reader<'a> {
             self.line = self.line.replacen(&cap[0], "", 1);
             match name_to_char(&cap[1]) {
                 Some(c) => return Ok(Char(c)),
-                None => return self.parse_error(format!("unknown character name: {}", &cap[1]).as_str()),
+                None => return self.read_error(format!("unknown character name: {}", &cap[1]).as_str()),
             }
         }
 
@@ -356,7 +342,7 @@ impl<'a> Reader<'a> {
             self.line = self.line.replacen(",@", "", 1);
             match self.read_line(true) {
                 Ok(line) => self.line = line.to_owned(),
-                Err(LispError::EndOfInput) => return self.parse_eof("unquoting ,@"),
+                Err(LispError::EndOfInput) => return self.read_error_eof("unquoting ,@"),
                 Err(err) => return Err(err)
             }
             return Ok(UnquoteSplicing);
@@ -383,7 +369,7 @@ impl<'a> Reader<'a> {
             '\'' => {
                 match self.read_line(true) {
                     Ok(line) => self.line = line.to_owned(),
-                    Err(LispError::EndOfInput) => return self.parse_eof("quoting '"),
+                    Err(LispError::EndOfInput) => return self.read_error_eof("quoting '"),
                     Err(err) => return Err(err)
                 }
                 return Ok(Quote);
@@ -391,7 +377,7 @@ impl<'a> Reader<'a> {
             '`' => {
                 match self.read_line(true) {
                     Ok(line) => self.line = line.to_owned(),
-                    Err(LispError::EndOfInput) => return self.parse_eof("quasiquoting `"),
+                    Err(LispError::EndOfInput) => return self.read_error_eof("quasiquoting `"),
                     Err(err) => return Err(err)
                 }
                 return Ok(Quasiquote);
@@ -399,7 +385,7 @@ impl<'a> Reader<'a> {
             ',' => {
                 match self.read_line(true) {
                     Ok(line) => self.line = line.to_owned(),
-                    Err(LispError::EndOfInput) => return self.parse_eof("unquoting ,"),
+                    Err(LispError::EndOfInput) => return self.read_error_eof("unquoting ,"),
                     Err(err) => return Err(err)
                 }
                 return Ok(Unquote);
@@ -409,7 +395,7 @@ impl<'a> Reader<'a> {
                     self.line.remove(0);
                     return Ok(Pound(next.to_lowercase().to_string()));
                 }
-                return self.parse_error(format!("`{}'", first).as_str());
+                return self.read_error(format!("`{}'", first).as_str());
             }
             _ => return Ok(Rune(first)),
         }
@@ -419,7 +405,7 @@ impl<'a> Reader<'a> {
     fn parse_number(&mut self, lex: &str) -> LispResult {
         match lex.parse::<i64>() {
             Ok(n) => Ok(Sexp::Number(n)),
-            Err(err) => self.parse_error(err.description()),
+            Err(err) => self.read_error(err.description()),
         }
     }
 
@@ -434,19 +420,19 @@ impl<'a> Reader<'a> {
             // "x" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 16进制数码前缀
             // "o" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 8进制数码前缀
             // "b" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 2进制数码前缀
-            _ => self.parse_error(format!("bad syntax: `#{}'", lex).as_str()),
+            _ => self.read_error(format!("bad syntax: `#{}'", lex).as_str()),
         }
     }
 
-    fn parse_error<T>(&mut self, err: &str) -> Result<T, LispError> {
+    fn read_error<T>(&mut self, err: &str) -> Result<T, LispError> {
         self.scope = 0;
         self.string = false;
         Err(LispError::ReadError(err.to_owned()))
     }
 
-    fn parse_eof<T>(&mut self, expected: &str) -> Result<T, LispError> {
+    fn read_error_eof<T>(&mut self, expected: &str) -> Result<T, LispError> {
         self.scope = 0;
         self.string = false;
-        Err(LispError::ReadError(format!("expected {} (found end-of-file)", expected.to_owned())))
+        Err(LispError::ReadError(format!("expected {} (found end of file)", expected.to_owned())))
     }
 }

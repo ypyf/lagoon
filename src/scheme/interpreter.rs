@@ -12,6 +12,10 @@ use scheme::types::LispError;
 use scheme::types::Sexp;
 
 use std::rc::Rc;
+use std::fs::File;
+use std::process::exit;
+use std::io::BufReader;
+use std::io::Cursor;
 
 pub struct Interpreter {
     ctx: Context,
@@ -72,7 +76,7 @@ impl Interpreter {
         self.init_globals();
         for item in reader {
             match item {
-                Ok(expr) => if let Some(err) = self.ctx.eval(&expr).err() {
+                Ok(expr) => if let Err(err) = self.ctx.eval(&expr) {
                     eprintln!("{}", err)
                 }
                 Err(err) => eprintln!("{}", err)
@@ -84,7 +88,7 @@ impl Interpreter {
         let mut res_no = 0;
         self.ctx.enter_scope();
         self.init_globals();
-        for expr in Reader::from_stdin() {
+        for expr in Reader::new() {
             match expr {
                 Ok(ref sexp) => {
                     self.ctx.set_current_expr(Rc::new(sexp.clone()));
@@ -110,10 +114,23 @@ impl Interpreter {
     }
 
     pub fn run_once(&mut self, path: &str) {
-        self.run(Reader::from_file(path))
+        let file = match File::open(path) {
+            Ok(file) => file,
+            Err(err) => {
+                eprintln!("lagoon: {}: '{}'", err, path);
+                exit(1)
+            }
+        };
+        let mut reader = Reader::new();
+        let mut input = BufReader::new(file);
+        reader.set_input(&mut input);
+        self.run(reader);
     }
 
     pub fn eval_string(&mut self, string: &str) {
-        self.run(Reader::from_string(string))
+        let mut reader = Reader::new();
+        let mut input = Cursor::new(string);
+        reader.set_input(&mut input);
+        self.run(reader);
     }
 }
