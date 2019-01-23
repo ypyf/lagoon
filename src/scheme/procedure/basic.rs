@@ -150,21 +150,19 @@ pub fn if_exp(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
     if arity == 2 {
         let pred = &exprs[0];
         let conseq = &exprs[1];
-        match ctx.eval(pred) {
-            // 只有False是假值
-            Ok(False) => Ok(Void),
-            Ok(_) => ctx.eval(conseq),  // FIXME 尾部
-            Err(err) => Err(err),
+        if ctx.eval(pred)?.is_true() {
+            ctx.eval(conseq)    // FIXME 尾部
+        } else {
+            Ok(Void)
         }
     } else {
         let pred = &exprs[0];
         let conseq = &exprs[1];
         let alt = &exprs[2];
-        match ctx.eval(pred) {
-            // 只有False是假值
-            Ok(False) => ctx.eval(alt), // FIXME 尾部
-            Ok(_) => ctx.eval(conseq),  // FIXME 尾部
-            Err(err) => Err(err),
+        if ctx.eval(pred)?.is_true() {
+            ctx.eval(conseq)    // FIXME 尾部
+        } else {
+            ctx.eval(alt)       // FIXME 尾部
         }
     }
 }

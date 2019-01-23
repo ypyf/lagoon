@@ -4,20 +4,26 @@ use scheme::types::LispResult;
 use scheme::types::Sexp;
 use scheme::types::Sexp::*;
 
-// Predicate non-empty list
+// pair?
+// Predicates non-empty list
 pub fn is_pair(_context: &mut Context, args: Vec<Sexp>) -> LispResult<Sexp> {
     let arity = args.len();
     if arity != 1 {
         return Err(ArityMismatch("pair?".to_string(), 1, arity));
     }
-
-    match args[0] {
-        Nil => Ok(False),
-        List(_, _) => Ok(True),
-        _ => Ok(False),
-    }
+    Ok(Sexp::bool(args[0].is_pair()))
 }
 
+// atom?
+pub fn is_atom(_context: &mut Context, args: Vec<Sexp>) -> LispResult<Sexp> {
+    let arity = args.len();
+    if arity != 1 {
+        return Err(ArityMismatch("atom?".to_string(), 1, arity));
+    }
+    Ok(Sexp::bool(args[0].is_atom()))
+}
+
+// number?
 pub fn is_number(_context: &mut Context, args: Vec<Sexp>) -> LispResult<Sexp> {
     let arity = args.len();
     if arity != 1 {
@@ -132,11 +138,7 @@ pub fn is_symbol(_context: &mut Context, args: Vec<Sexp>) -> LispResult<Sexp> {
     if arity != 1 {
         return Err(ArityMismatch("symbol?".to_string(), 1, arity));
     }
-
-    match args[0] {
-        Symbol(_) => Ok(True),
-        _ => Ok(False),
-    }
+    Ok(Sexp::bool(args[0].is_symbol()))
 }
 
 pub fn is_procedure(_context: &mut Context, args: Vec<Sexp>) -> LispResult<Sexp> {

@@ -350,21 +350,44 @@ pub enum Sexp {
 }
 
 impl Sexp {
+    pub fn is_true(&self) -> bool {
+        // Scheme中只有#f是假值
+        if let Sexp::False = self {
+            false
+        } else {
+            true
+        }
+    }
+
+    pub fn bool(b: bool) -> Sexp {
+        if b {
+            Sexp::True
+        } else {
+            Sexp::False
+        }
+    }
+
+    // null?
     pub fn is_null(&self) -> bool {
-        use self::Sexp::*;
-        match self {
-            Nil => true,
-            _ => false,
+        if let Sexp::Nil = self {
+            true
+        } else {
+            false
         }
     }
 
     // pair?
     pub fn is_pair(&self) -> bool {
-        use self::Sexp::*;
-        match self {
-            List(_, _) => true,
-            _ => false,
+        if let Sexp::List(_, _) = self {
+            true
+        } else {
+            false
         }
+    }
+
+    // atom?
+    pub fn is_atom(&self) -> bool {
+        !self.is_pair()
     }
 
     // list?
