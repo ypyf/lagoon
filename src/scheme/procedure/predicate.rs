@@ -14,15 +14,6 @@ pub fn is_pair(_context: &mut Context, args: Vec<Sexp>) -> LispResult<Sexp> {
     Ok(Sexp::bool(args[0].is_pair()))
 }
 
-// atom?
-pub fn is_atom(_context: &mut Context, args: Vec<Sexp>) -> LispResult<Sexp> {
-    let arity = args.len();
-    if arity != 1 {
-        return Err(ArityMismatch("atom?".to_string(), 1, arity));
-    }
-    Ok(Sexp::bool(args[0].is_atom()))
-}
-
 // number?
 pub fn is_number(_context: &mut Context, args: Vec<Sexp>) -> LispResult<Sexp> {
     let arity = args.len();

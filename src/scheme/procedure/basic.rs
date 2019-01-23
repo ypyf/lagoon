@@ -90,7 +90,7 @@ pub fn assign(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
     }
 }
 
-// FIXME body不能为空，必须要有表达式
+// FIXME body不能为空
 pub fn lambda(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
     let arity = exprs.len();
     if arity == 0 {
@@ -201,7 +201,7 @@ fn check_transformer(expr: &Sexp) -> Option<&[Sexp]> {
             }
         }
     }
-    return None;
+    None
 }
 
 fn syntax_rules(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Transformer> {

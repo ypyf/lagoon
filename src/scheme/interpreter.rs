@@ -50,7 +50,6 @@ impl Interpreter {
         self.ctx.def_proc("car", list::car);
         self.ctx.def_proc("cdr", list::cdr);
         self.ctx.def_proc("cons", list::cons);
-        self.ctx.def_proc("atom?", predicate::is_atom);
         self.ctx.def_proc("pair?", predicate::is_pair);
         self.ctx.def_proc("string?", predicate::is_string);
         self.ctx.def_proc("number?", predicate::is_number);

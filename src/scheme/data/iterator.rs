@@ -73,7 +73,7 @@ impl<'a> ListIterator<'a> {
 }
 
 impl<'a> Iterator for ListIterator<'a> {
-    type Item = Sexp;
+    type Item = &'a Sexp;
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if self.index >= self.expr.count() {
@@ -104,7 +104,7 @@ impl<'a> Iterator for ListIterator<'a> {
                     self.index = 0;
                     self.expr = item;
                 }
-                _ => return Some(item.clone()),
+                _ => return Some(item),
             }
         }
     }
@@ -120,7 +120,7 @@ impl IntoIterator for Sexp {
 }
 
 impl<'a> IntoIterator for &'a Sexp {
-    type Item = Sexp;
+    type Item = &'a Sexp;
     type IntoIter = ListIterator<'a>;
 
     // 注意这里的self是引用

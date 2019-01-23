@@ -385,11 +385,6 @@ impl Sexp {
         }
     }
 
-    // atom?
-    pub fn is_atom(&self) -> bool {
-        !self.is_pair()
-    }
-
     // list?
     pub fn is_list(&self) -> bool {
         use self::Sexp::*;
@@ -595,7 +590,7 @@ impl fmt::Display for LispError {
         match self {
             EndOfInput => write!(f, ""),
             Interrupted => write!(f, "User interrupt"),
-            DivisionByZero(sym) => write!(f, "{}: division by zero", sym),
+            DivisionByZero(sym) => write!(f, "Error in {}: division by zero", sym),
             ReadError(err) => write!(f, "read: {}", err),
             AssignError(err, _ctx) => write!(f, "set!: {}", err),
             BadSyntax(sym, err) => {
@@ -608,11 +603,7 @@ impl fmt::Display for LispError {
             }
             IndexOutOfRange(sym, index, lower, upper) =>
                 write!(f, "{}: index is out of range\n index: {}\n valid range: [{}, {}]", sym, index, lower, upper),
-            Undefined(sym) => write!(
-                f,
-                "{}: undefined;\n cannot reference undefined identifier",
-                sym
-            ),
+            Undefined(sym) => write!(f, "Error: variable {} is not bound", sym),
             ApplyError(err) => write!(f, "application: {}", err),
             ArityMismatch(sym, expected, given) => write!(
                 f,
