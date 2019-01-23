@@ -70,7 +70,7 @@ pub struct Reader<'a> {
 }
 
 impl Iterator for Reader<'_> {
-    type Item = LispResult;
+    type Item = LispResult<Sexp>;
     fn next(&mut self) -> Option<Self::Item> {
         match self.read() {
             Ok(expr) => Some(Ok(expr)),
@@ -108,7 +108,7 @@ impl<'a> Reader<'a> {
         self.ps2 = ps2;
     }
 
-    pub fn read(&mut self) -> LispResult {
+    pub fn read(&mut self) -> LispResult<Sexp> {
         use self::Sexp::*;
 
         self.scope = 0;
@@ -211,7 +211,7 @@ impl<'a> Reader<'a> {
         expr
     }
 
-    fn read_atom(&mut self, token: Token) -> LispResult {
+    fn read_atom(&mut self, token: Token) -> LispResult<Sexp> {
         match token {
             Token::Number(lex) => self.parse_number(lex.as_str()),
             Token::Str(lex) => Ok(Sexp::Str(Rc::new(RefCell::new(lex)), false)),
@@ -402,7 +402,7 @@ impl<'a> Reader<'a> {
     }
 
     // TODO 大整数
-    fn parse_number(&mut self, lex: &str) -> LispResult {
+    fn parse_number(&mut self, lex: &str) -> LispResult<Sexp> {
         match lex.parse::<i64>() {
             Ok(n) => Ok(Sexp::Number(n)),
             Err(err) => self.read_error(err.description()),
@@ -410,7 +410,7 @@ impl<'a> Reader<'a> {
     }
 
     // See also https://www.gnu.org/software/mit-scheme/documentation/mit-scheme-ref/Additional-Notations.html
-    fn parse_pound(&mut self, lex: &str) -> LispResult {
+    fn parse_pound(&mut self, lex: &str) -> LispResult<Sexp> {
         match lex {
             "t" => Ok(Sexp::True),
             "f" => Ok(Sexp::False),

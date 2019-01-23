@@ -5,25 +5,37 @@ use std::rc::Rc;
 use std::str;
 use std::cell::RefCell;
 
-pub type LispResult = Result<Sexp, LispError>;
+pub const UNDERSCORE: &str = "_";
+
+// 省略号默认为三点，可配置
+pub const ELLIPSIS: &str = "...";
+
+pub type LispResult<T> = Result<T, LispError>;
 
 type Env = Vec<HashMap<String, Rc<RefCell<Sexp>>>>;
 
 #[derive(Debug, Clone)]
 pub struct Context {
-    env: Rc<RefCell<Env>>,
+    pub env: Env,
     last_expr: Rc<Sexp>,
-    current_proc: Rc<Sexp>, // 当前apply的过程
+    current_proc: Rc<Sexp>,
+    // 当前apply的过程
+    nest_level: i64,
 }
 
 #[allow(dead_code)]
 impl Context {
     pub fn new() -> Self {
         Context {
-            env: Rc::new(RefCell::new(Env::new())),
+            env: Env::new(),
             last_expr: Rc::new(Sexp::Void),
             current_proc: Rc::new(Sexp::Void),
+            nest_level: 0,
         }
+    }
+
+    pub fn is_toplevel(&self) -> bool {
+        self.nest_level == 0
     }
 
     pub fn get_current_expr(&self) -> Rc<Sexp> {
@@ -43,16 +55,16 @@ impl Context {
     }
 
     pub fn enter_scope(&mut self) {
-        self.env.borrow_mut().push(HashMap::new())
+        self.env.push(HashMap::new())
     }
 
     pub fn leave_scope(&mut self) {
-        self.env.borrow_mut().pop();
+        self.env.pop();
     }
 
     pub fn define_variable(&mut self, name: &str, val: &Sexp) {
         let var = Rc::new(RefCell::new(val.clone()));
-        self.env.borrow_mut().last_mut().unwrap().insert(name.to_owned(), var);
+        self.env.last_mut().unwrap().insert(name.to_owned(), var);
     }
 
     pub fn set_variable(&mut self, name: &str, val: &Sexp) -> bool {
@@ -83,7 +95,7 @@ impl Context {
     }
 
     pub fn lookup(&self, name: &str) -> Option<Rc<RefCell<Sexp>>> {
-        for current in self.env.borrow_mut().iter().rev() {
+        for current in self.env.iter().rev() {
             if let Some(val) = current.get(name) {
                 return Some(val.clone());
             }
@@ -91,33 +103,125 @@ impl Context {
         None
     }
 
-    pub fn eval(&mut self, expr: &Sexp) -> LispResult {
+    pub fn syntax_error<T>(&self, form: &str) -> LispResult<T> {
+        Err(LispError::BadSyntax(form.to_string(), None))
+    }
+
+    pub fn syntax_error1<T>(&self, form: &str, reason: &str) -> LispResult<T> {
+        Err(LispError::BadSyntax(form.to_string(), Some(reason.to_string())))
+    }
+
+    pub fn eval(&mut self, expr: &Sexp) -> LispResult<Sexp> {
         use self::Sexp::*;
         use self::LispError::*;
 
         match expr {
             Symbol(name) => match self.lookup(name.as_str()) {
-                Some(val) => {
+                // 顶层求值syntax是语法错误
+                Some(val) => if self.is_toplevel() {
+                    match val.borrow().clone() {
+                        Syntax { keyword, .. } => self.syntax_error(&keyword),
+                        otherwise => Ok(otherwise)
+                    }
+                } else {
                     Ok(val.borrow().clone())
                 }
                 None => Err(Undefined(name.to_string())),
             },
             Nil => return Err(ApplyError("missing procedure expression".to_owned())),
             List(v, t) => {
+                self.nest_level += 1;
                 self.last_expr = Rc::new(expr.clone());
                 if v.is_empty() {
                     return Err(ApplyError("missing procedure expression".to_owned()));
                 }
                 let proc = self.eval(&v[0])?;
-                let mut args = v[1..].to_vec();
-                args.push((**t).clone());
-                self.apply(proc, args)
+                let ret = match proc {
+                    Syntax { keyword, transformer } => self.apply_transformer(&keyword, transformer, expr.clone()),
+                    _ => {
+                        let mut args = v[1..].to_vec();
+                        args.push((**t).clone());
+                        self.apply(proc, args)
+                    }
+                };
+                self.nest_level -= 1;
+                ret
             }
             _ => Ok(expr.clone()), // 其它表达式求值到其本身
         }
     }
 
-    fn apply(&mut self, proc: Sexp, exprs: Vec<Sexp>) -> LispResult {
+    fn apply_transformer(&mut self, keyword: &str, transformer: Transformer, form: Sexp) -> LispResult<Sexp> {
+        for rule in transformer.rules {
+            println!("match {} {}", rule.pattern, form);
+            if let (idents, true) = Context::match_syntax_rule(keyword, &rule.pattern, &form) {
+                self.enter_scope();
+                for (ident, datum) in idents {
+                    self.define_variable(&ident, &datum);
+                }
+                // 注意这里使用的ctx以及求值的顺序
+                let res = self.eval(&rule.template)?;
+                self.leave_scope();
+                return self.eval(&res);
+            }
+        }
+        self.syntax_error(keyword)
+    }
+
+    fn match_syntax_rule(keyword: &str, pat: &Sexp, form: &Sexp) -> (HashMap<String, Sexp>, bool) {
+        use self::Sexp::*;
+        let mut list_stack = vec![];
+        let mut bindings = HashMap::new();
+        let mut a = pat.clone();
+        let mut b = form.clone();
+        loop {
+            match &a {
+                // FIXME 判断literals
+                Symbol(ident) => if ident != keyword && ident != ELLIPSIS {
+                    bindings.insert(ident.clone(), b.clone());
+                } else {
+                    //bindings.insert(ident.clone(), current_b.clone());
+                }
+                List(init1, last1) => match &b {
+                    List(init2, last2) => {
+                        // FIXME 匹配可变参数和ellipsis
+                        let mut pos = 0;    // 记录固定实参数的位置
+                        for a in init1 {
+                            match a {
+                                Symbol(ident) => if ident == ELLIPSIS {
+                                    list_stack.push((a.clone(), form.clone()))
+                                } else {
+                                    if init2.len() <= pos {
+                                        return (bindings, false);
+                                    }
+                                    list_stack.push((a.clone(), init2[pos].clone()));
+                                    pos += 1;
+                                }
+                                _ => {
+                                    if init2.len() <= pos {
+                                        return (bindings, false);
+                                    }
+                                    list_stack.push((a.clone(), init2[pos].clone()));
+                                    pos += 1;
+                                }
+                            }
+                        }
+                    }
+                    _ => return (bindings, false),
+                },
+                _ => if a != b { return (bindings, false); }
+            }
+            if list_stack.is_empty() {
+                return (bindings, true);
+            } else {
+                let (a1, b1) = list_stack.pop().unwrap();
+                a = a1;
+                b = b1;
+            }
+        }
+    }
+
+    fn apply(&mut self, proc: Sexp, exprs: Vec<Sexp>) -> LispResult<Sexp> {
         use self::Sexp::*;
         use self::LispError::*;
 
@@ -132,7 +236,7 @@ impl Context {
                     func(self, args)
                 } else {
                     if *args.last().unwrap() != Nil {
-                        return Err(BadSyntax("apply".to_owned(), None, self.clone()));
+                        return self.syntax_error("apply");
                     }
                     args.pop();
                     let mut vals = Vec::with_capacity(args.len());
@@ -145,7 +249,7 @@ impl Context {
             }
             Closure { name, params, vararg, body, mut context } => {
                 if *args.last().unwrap() != Nil {
-                    return Err(BadSyntax("apply".to_owned(), None, self.clone()));
+                    return self.syntax_error("apply");
                 }
                 args.pop();
 
@@ -158,7 +262,7 @@ impl Context {
                 let nparams = params.len();
                 let nargs = args.len();
                 if nargs < nparams && vararg.is_some() {
-                    // TODO message: expected least nparams...
+                    // FIXME expected least nparams...
                     return Err(ArityMismatch(func_name, nparams, nargs));
                 } else if nargs != nparams && vararg.is_none() {
                     return Err(ArityMismatch(func_name, nparams, nargs));
@@ -170,7 +274,6 @@ impl Context {
                     vals.push(val);
                 }
 
-                context.enter_scope();
                 match vararg {
                     Some(sym) => {
                         for (k, v) in params.iter().zip(vals.iter()) {
@@ -189,21 +292,32 @@ impl Context {
                         }
                     }
                 }
-                // TODO tail call optimization
+                // FIXME tail call optimization
                 let (last, elements) = body.split_last().unwrap();
                 for expr in elements {
                     context.eval(&expr).unwrap();
                 }
-                let res = context.eval(last);
-                context.leave_scope();
-                res
+                context.eval(last)
             }
             _ => Err(ApplyError(format!("not a procedure: {}", proc))),
         }
     }
 }
 
-pub type Function = fn(&mut Context, Vec<Sexp>) -> LispResult;
+pub type Function = fn(&mut Context, Vec<Sexp>) -> LispResult<Sexp>;
+
+#[derive(Debug, Clone)]
+pub struct SyntaxRule {
+    pub pattern: Sexp,
+    pub template: Sexp,
+}
+
+#[derive(Debug, Clone)]
+pub struct Transformer {
+    pub id: Option<String>,
+    pub literals: Vec<String>,
+    pub rules: Vec<SyntaxRule>,
+}
 
 #[derive(Debug, Clone)]
 pub enum Sexp {
@@ -229,6 +343,124 @@ pub enum Sexp {
         body: Vec<Sexp>,
         context: Context,
     },
+    Syntax {
+        keyword: String,
+        transformer: Transformer,
+    },
+}
+
+impl Sexp {
+    pub fn is_null(&self) -> bool {
+        use self::Sexp::*;
+        match self {
+            Nil => true,
+            _ => false,
+        }
+    }
+
+    // pair?
+    pub fn is_pair(&self) -> bool {
+        use self::Sexp::*;
+        match self {
+            List(_, _) => true,
+            _ => false,
+        }
+    }
+
+    // list?
+    pub fn is_list(&self) -> bool {
+        use self::Sexp::*;
+        match self {
+            Nil => true,
+            List(_, last) => match **last {
+                Nil => true,
+                _ => false,
+            }
+            _ => false,
+        }
+    }
+
+    pub fn is_improper_list(&self) -> bool {
+        use self::Sexp::*;
+        match self {
+            List(_, last) => match **last {
+                Nil => false,
+                _ => true,
+            }
+            _ => false,
+        }
+    }
+
+    // 计算元素个数（不包括尾部的Nil, 不递归计算）
+    pub fn count(&self) -> usize {
+        use self::Sexp::*;
+        if let List(init, last) = self {
+            if **last != Nil {
+                init.len() + 1
+            } else {
+                init.len()
+            }
+        } else {
+            1
+        }
+    }
+
+    pub fn to_vec(&self) -> Vec<Self> {
+        use self::Sexp::*;
+        match self {
+            Nil => vec![],
+            List(init, last) => if **last == Nil {
+                init.clone()
+            } else {
+                let mut res = init.clone();
+                res.push((**last).clone());
+                res
+            }
+            _ => vec![self.clone()],
+        }
+    }
+
+    pub fn first(&self) -> &Self {
+        use self::Sexp::*;
+        if let List(init, _) = self {
+            &init[0]
+        } else {
+            self
+        }
+    }
+
+    pub fn first_mut(&mut self) -> &mut Self {
+        use self::Sexp::*;
+        if let List(init, _) = self {
+            &mut init[0]
+        } else {
+            self
+        }
+    }
+
+    pub fn is_symbol(&self) -> bool {
+        if let Sexp::Symbol(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_mutable_string(&self) -> bool {
+        if let Sexp::Str(_, true) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_immutable_string(&self) -> bool {
+        if let Sexp::Str(_, false) = self {
+            true
+        } else {
+            false
+        }
+    }
 }
 
 // See also r5rs 6.1 (eqv? obj1 obj2)
@@ -278,17 +510,13 @@ impl<'a> fmt::Display for Sexp {
             Char(n) => write!(f, "#\\{}", char_to_name(*n)),
             Str(n, _) => write!(f, "{:?}", n.borrow()), // 字符串输出时显示双引号
             Function { name, .. } => write!(f, "#<procedure:{}>", name),
-            Closure { name, .. } => {
-                if name.is_empty() {
-                    write!(f, "#<procedure>")
-                } else {
-                    write!(f, "#<procedure:{}>", name)
-                }
+            Closure { name, .. } => if name.is_empty() {
+                write!(f, "#<procedure>")
+            } else {
+                write!(f, "#<procedure:{}>", name)
             }
+            Syntax { keyword, .. } => write!(f, "#<syntax:{}>", keyword),
             List(first, second) => {
-                if first.is_empty() {
-                    return write!(f, "{}", second);
-                }
                 let mut datum = String::with_capacity(first.len() + 2);
                 datum.push('(');
                 for expr in first.iter() {
@@ -329,7 +557,7 @@ pub enum LispError {
     DivisionByZero(String),
     ReadError(String),
     AssignError(String, Context),
-    BadSyntax(String, Option<String>, Context),
+    BadSyntax(String, Option<String>),
     IndexOutOfRange(String, usize, usize, usize),
     Undefined(String),
     ApplyError(String),
@@ -347,13 +575,13 @@ impl fmt::Display for LispError {
             DivisionByZero(sym) => write!(f, "{}: division by zero", sym),
             ReadError(err) => write!(f, "read: {}", err),
             AssignError(err, _ctx) => write!(f, "set!: {}", err),
-            BadSyntax(sym, err, ctx) => {
-                let msg = if let Some(e) = err {
-                    format!("bad syntax ({})", e)
+            BadSyntax(sym, err) => {
+                let msg = if let Some(reason) = err {
+                    reason.clone()
                 } else {
                     "bad syntax".to_owned()
                 };
-                write!(f, "{}: {}\n in: {}", sym, msg, ctx.get_current_expr())
+                write!(f, "{}: {}", sym, msg)
             }
             IndexOutOfRange(sym, index, lower, upper) =>
                 write!(f, "{}: index is out of range\n index: {}\n valid range: [{}, {}]", sym, index, lower, upper),
@@ -382,7 +610,7 @@ impl Error for LispError {
             DivisionByZero(_) => "division by zero",
             ReadError(_) => "read error",
             AssignError(_, _) => "set! error",
-            BadSyntax(_, _, _) => "bad syntax",
+            BadSyntax(_, _) => "bad syntax",
             Undefined(_) => "undefined identifier",
             IndexOutOfRange(_, _, _, _) => "index out of range",
             ApplyError(_) => "application error",

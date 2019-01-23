@@ -10,7 +10,7 @@ use scheme::types::Sexp::{Char, True, False};
 // 数码字符是有序的
 // 所有的数码字符大于或小于大写字符
 // 所有的数码字符大于或小于小写字符
-pub fn compare<F>(name: &str, op: F, _context: &mut Context, args: Vec<Sexp>) -> LispResult where
+pub fn compare<F>(name: &str, op: F, _context: &mut Context, args: Vec<Sexp>) -> LispResult<Sexp> where
     F: Fn(char, char) -> bool {
     let mut vals = Vec::with_capacity(args.len());
     for arg in args {

@@ -30,7 +30,7 @@ impl fmt::Display for Operator {
     }
 }
 
-pub fn arith_op(op: Operator, _context: &mut Context, args: Vec<Sexp>) -> LispResult {
+pub fn arith_op(op: Operator, _context: &mut Context, args: Vec<Sexp>) -> LispResult<Sexp> {
     use self::Operator::*;
     // 检查参数类型
     let mut vals = Vec::with_capacity(args.len());
@@ -63,7 +63,7 @@ pub fn arith_op(op: Operator, _context: &mut Context, args: Vec<Sexp>) -> LispRe
     Ok(Number(res))
 }
 
-pub fn compare<F>(name: &str, op: F, _context: &mut Context, args: Vec<Sexp>) -> LispResult where
+pub fn compare<F>(name: &str, op: F, _context: &mut Context, args: Vec<Sexp>) -> LispResult<Sexp> where
     F: Fn(i64, i64) -> bool {
     let mut vals = Vec::with_capacity(args.len());
     for arg in args {

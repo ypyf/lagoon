@@ -68,6 +68,7 @@ impl Interpreter {
         self.ctx.def_synatx("quote", basic::quote);
         self.ctx.def_synatx("lambda", basic::lambda);
         self.ctx.def_synatx("if", basic::if_exp);
+        self.ctx.def_synatx("define-syntax", basic::define_syntax);
     }
 
     // 运行解释器
@@ -112,6 +113,7 @@ impl Interpreter {
                 Err(err) => eprintln!("{}", err),
             }
         }
+        self.ctx.leave_scope();
     }
 
     pub fn run_once(&mut self, path: &str) {
