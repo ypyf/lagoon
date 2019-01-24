@@ -19,7 +19,7 @@ A Scheme interpreter written in Rust
 
     fn main() {
         // Create an interpreter object
-        let interp = Interpreter::new();
+        let mut interp = Interpreter::new();
         
         // Evaluate the expressions represented by a string
         interp.eval_string("(+ 1 2 3)");
