@@ -1,5 +1,4 @@
 use scheme::types::Sexp;
-use scheme::types::Sexp::*;
 
 #[derive(Debug, Clone)]
 pub struct ListIntoIterator {
@@ -22,7 +21,7 @@ impl Iterator for ListIntoIterator {
     type Item = Sexp;
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if self.index >= self.expr.count() {
+            if self.index >= self.expr.list_count() {
                 if self.state_stack.is_empty() {
                     return None;
                 } else {
@@ -32,25 +31,20 @@ impl Iterator for ListIntoIterator {
                 }
             }
             let index = self.index;
-            let item = if let List(init, last) = &self.expr {
-                if index >= init.len() {
-                    (**last).clone()
-                } else {
-                    init[index].clone()
-                }
+            let item = if let Some(item) = self.expr.nth(index) {
+                item.clone()
             } else {
                 self.expr.clone()
             };
             self.index += 1;
-            match &item {
-                List(_, _) => {
-                    if self.index < self.expr.count() {
-                        self.state_stack.push((self.index, self.expr.clone()));
-                    }
-                    self.index = 0;
-                    self.expr = item;
+            if item.is_pair() {
+                if self.index < self.expr.list_count() {
+                    self.state_stack.push((self.index, self.expr.clone()));
                 }
-                _ => return Some(item),
+                self.index = 0;
+                self.expr = item;
+            } else {
+                return Some(item)
             }
         }
     }
@@ -76,7 +70,7 @@ impl<'a> Iterator for ListIterator<'a> {
     type Item = &'a Sexp;
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if self.index >= self.expr.count() {
+            if self.index >= self.expr.list_count() {
                 if self.state_stack.is_empty() {
                     return None;
                 } else {
@@ -86,45 +80,37 @@ impl<'a> Iterator for ListIterator<'a> {
                 }
             }
             let index = self.index;
-            let item = if let List(init, last) = self.expr {
-                if index >= init.len() {
-                    &**last
-                } else {
-                    &init[index]
-                }
+            let item = if let Some(item) = self.expr.nth(index) {
+                item
             } else {
                 self.expr
             };
             self.index += 1;
-            match &item {
-                List(_, _) => {
-                    if self.index < self.expr.count() {
-                        self.state_stack.push((self.index, self.expr));
-                    }
-                    self.index = 0;
-                    self.expr = item;
+            if item.is_pair() {
+                if self.index < self.expr.list_count() {
+                    self.state_stack.push((self.index, self.expr));
                 }
-                _ => return Some(item),
+                self.index = 0;
+                self.expr = item;
+            } else {
+                return Some(item)
             }
         }
     }
 }
 
-impl IntoIterator for Sexp {
-    type Item = Sexp;
-    type IntoIter = ListIntoIterator;
-
-    fn into_iter(self) -> Self::IntoIter {
-        ListIntoIterator::new(self)
-    }
-}
-
-impl<'a> IntoIterator for &'a Sexp {
-    type Item = &'a Sexp;
-    type IntoIter = ListIterator<'a>;
-
-    // 注意这里的self是引用
-    fn into_iter(self) -> Self::IntoIter {
-        ListIterator::new(self)
-    }
-}
+//pub struct ListIteratorMut<'a> {
+//    state_stack: Vec<(usize, &'a mut Sexp)>,
+//    index: usize,
+//    expr: &'a mut Sexp,
+//}
+//
+//impl<'a> ListIteratorMut<'a> {
+//    pub fn new(expr: &'a mut Sexp) -> Self {
+//        ListIteratorMut {
+//            state_stack: vec![],
+//            index: 0,
+//            expr,
+//        }
+//    }
+//}

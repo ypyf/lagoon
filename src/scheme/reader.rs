@@ -117,7 +117,7 @@ impl<'a> Reader<'a> {
         let mut list_level = 0;
         let mut dot_count = 0;  // 当前列表中的dot个数
         let mut dot_stack = vec![];
-        let mut current_exprs = vec![]; // 保存当前列表中的表达式
+        let mut current_list = vec![]; // 保存当前列表中的表达式
         let mut list_stack = vec![];
         let mut macros = vec![];
         let mut macro_stack = vec![];
@@ -140,8 +140,8 @@ impl<'a> Reader<'a> {
                     if list_level > 0 {
                         dot_stack.push(dot_count);
                         dot_count = 0;
-                        list_stack.push(current_exprs.clone());
-                        current_exprs.clear();
+                        list_stack.push(current_list.clone());
+                        current_list.clear();
                     }
                     macro_stack.push(macros.clone());
                     macros.clear();
@@ -157,27 +157,36 @@ impl<'a> Reader<'a> {
                         macros = m;
                     }
 
-                    let list = if current_exprs.is_empty() {
+                    let list = if current_list.is_empty() {
                         Nil
                     } else if dot_count > 0 {
-                        let last = current_exprs.pop().unwrap();
-                        // (. x) => x
-                        if current_exprs.is_empty() {
-                            last
+                        if current_list.len() == 1 {
+                            // (. x) => x
+                            current_list.pop().unwrap()
+                        } else if let Some(last) = current_list.pop() {
+                            // (a . (b)) = > (a b)
+                            if let List(xs) = last {
+                                for i in xs {
+                                    current_list.push(i)
+                                }
+                            } else {
+                                current_list.push(last)
+                            }
+                            List(current_list)
                         } else {
-                            List(current_exprs, Rc::new(last))
+                            List(current_list)
                         }
                     } else {
-                        List(current_exprs, Rc::new(Nil))
+                        current_list.push(Nil);
+                        List(current_list)
                     };
 
                     if list_stack.is_empty() {
                         return Ok(Reader::expand_macro(&mut macros, &list));
                     }
-
                     let mut outer = list_stack.pop().unwrap();
                     outer.push(Reader::expand_macro(&mut macros, &list));
-                    current_exprs = outer;
+                    current_list = outer;
                     dot_count = dot_stack.pop().unwrap();
                 }
                 Token::Rune('.') => {
@@ -194,7 +203,7 @@ impl<'a> Reader<'a> {
                     if list_level == 0 {
                         return Ok(Reader::expand_macro(&mut macros, &expr));
                     }
-                    current_exprs.push(Reader::expand_macro(&mut macros, &expr));
+                    current_list.push(Reader::expand_macro(&mut macros, &expr));
                 }
             }
         }
@@ -205,8 +214,7 @@ impl<'a> Reader<'a> {
         use self::Sexp::*;
         let mut expr = inner.clone();
         while let Some(m) = macros.pop() {
-            let init = vec![m, expr];
-            expr = List(init, Rc::new(Nil));
+            expr = List(vec![m, expr, Nil]);
         }
         expr
     }

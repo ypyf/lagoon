@@ -7,8 +7,7 @@ use scheme::types::Sexp;
 use scheme::types::Sexp::*;
 use scheme::types::{UNDERSCORE, ELLIPSIS};
 
-use std::rc::Rc;
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 pub fn quote(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
     let arity = exprs.len();
@@ -41,13 +40,13 @@ pub fn define(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
                 _ => ctx.bind(sym, &val)
             }
         }
-        List(init, last) => match **last {
+        List(xs) => match xs.last().unwrap() {
             // (define (name x y) (+ x y)) => (define name (lambda (x y) (+ x y)))
             Nil => {
-                let expr = if let Some((name, params)) = init.split_first() {
-                    let param_list = List(params.to_vec(), Rc::new(Nil));
-                    let lambda = List(vec![Symbol("lambda".to_owned()), param_list, exprs[1].clone()], Rc::new(Nil));
-                    List(vec![Symbol("define".to_owned()), name.clone(), lambda], Rc::new(Nil))
+                let expr = if let Some((name, params)) = xs.split_first() {
+                    let params = List(params.to_vec());
+                    let lambda = List(vec![Symbol("lambda".to_owned()), params, exprs[1].clone(), Nil]);
+                    List(vec![Symbol("define".to_owned()), name.clone(), lambda, Nil])
                 } else {
                     return ctx.syntax_error("define");
                 };
@@ -55,10 +54,10 @@ pub fn define(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
             }
             // (define (name x y . v) (+ x y)) => (define name (lambda (x y . v) (+ x y)))
             Symbol(_) => {
-                let expr = if let Some((name, params)) = init.split_first() {
-                    let param_list = List(params.to_vec(), last.clone());
-                    let lambda = List(vec![Symbol("lambda".to_owned()), param_list, exprs[1].clone()], Rc::new(Nil));
-                    List(vec![Symbol("define".to_owned()), name.clone(), lambda], Rc::new(Nil))
+                let expr = if let Some((name, params)) = xs.split_first() {
+                    let params = List(params.to_vec());
+                    let lambda = List(vec![Symbol("lambda".to_owned()), params, exprs[1].clone(), Nil]);
+                    List(vec![Symbol("define".to_owned()), name.clone(), lambda, Nil])
                 } else {
                     return ctx.syntax_error("define");
                 };
@@ -107,10 +106,11 @@ pub fn lambda(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
             body: exprs[1..].to_vec(),
             context: (*ctx).clone(),
         }),
-        List(init, last) => {
-            let vararg = match **last {
+        List(xs) => {
+            let (last, init) = xs.split_last().unwrap();
+            let vararg = match last {
                 Nil => None,
-                Symbol(ref sym) => Some(sym.clone()),
+                Symbol(sym) => Some(sym.clone()),
                 _ => return Err(BadSyntax("lambda".to_owned(), Some("not an identifier".to_owned()))),
             };
             let mut params = vec![];
@@ -192,12 +192,14 @@ pub fn define_syntax(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
 }
 
 // TODO 合并到syntax_rules
-// Check (syntax-rules) form
-fn check_transformer(expr: &Sexp) -> Option<&[Sexp]> {
-    if expr.is_list() {
-        if let List(init, _) = expr {
-            if init[0] == Symbol("syntax-rules".to_string()) {
-                return Some(&init[1..]);
+// Check (syntax-rules ...) form out
+fn check_transformer(form: &Sexp) -> Option<&[Sexp]> {
+    if form.is_list() {
+        if let List(xs) = form {
+            if let Symbol(ident) = xs.first().unwrap() {
+                if ident == "syntax-rules" {
+                    return form.rest(1);
+                }
             }
         }
     }
@@ -213,9 +215,9 @@ fn syntax_rules(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Transformer> {
     if arity == 1 {
         match first {
             Nil => return Ok(Transformer { id: None, literals: vec![], rules: vec![] }),
-            List(init, last) => if **last == Nil {
+            List(_) => if first.is_list() {
                 let mut id_list = vec![];
-                for item in init {
+                for item in first.init().unwrap() {
                     if let Symbol(ident) = item {
                         if ident != UNDERSCORE && ident != ELLIPSIS {
                             id_list.push(ident.clone())
@@ -247,15 +249,15 @@ fn syntax_rules(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Transformer> {
                 };
                 Ok(expr)
             }
-            List(init, last) => {
+            List(_) => {
                 let rules = if arity == 2 {
                     vec![]
                 } else {
                     parse_syntax_rules(ctx, &exprs[2..])?
                 };
-                if **last == Nil {
+                if first.is_list() {
                     let mut id_list = vec![];
-                    for item in init {
+                    for item in first.init().unwrap() {
                         if let Symbol(ident) = item {
                             if ident != UNDERSCORE && ident != ELLIPSIS {
                                 id_list.push(ident.clone())
@@ -282,9 +284,9 @@ fn syntax_rules(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Transformer> {
             };
             Ok(expr)
         }
-        List(init, last) => if **last == Nil {
+        List(_) => if first.is_list() {
             let mut id_list = vec![];
-            for item in init {
+            for item in first.init().unwrap() {
                 if let Symbol(ident) = item {
                     if ident != UNDERSCORE && ident != ELLIPSIS {
                         id_list.push(ident.clone())
@@ -315,35 +317,67 @@ fn parse_syntax_rules(ctx: &Context, exprs: &[Sexp]) -> LispResult<Vec<SyntaxRul
 
 // Check (pattern template) clause
 fn check_syntax_rules_clause(ctx: &Context, clause: &Sexp) -> LispResult<(Sexp, Sexp)> {
-    if !clause.is_list() || !clause.is_pair() || clause.count() != 2 {
+    if let List(xs) = clause {
+        if !clause.is_list() || clause.list_count() != 2 {
+            let error = format!("invalid syntax-rules clause {}", clause);
+            return ctx.syntax_error1("syntax-rules", &error);
+        }
+        let pattern = compile_pattern(ctx, clause, &xs[0])?;
+        // TODO check template
+        let template = xs[1].clone();
+        Ok((pattern, template))
+    } else {
         let error = format!("invalid syntax-rules clause {}", clause);
         return ctx.syntax_error1("syntax-rules", &error);
     }
+}
 
-    let list = clause.to_vec();
-    let mut pattern = list[0].clone();
-    let mut template = list[1].clone();
-
-    if !pattern.is_pair() || !pattern.first().is_symbol() {
+fn compile_pattern(ctx: &Context, clause: &Sexp, pattern: &Sexp) -> LispResult<Sexp> {
+    let mut compiled_pattern = if let List(xs) = pattern {
+        if xs.first().unwrap().is_symbol() {
+            pattern.clone()
+        } else {
+            // 最外层模式不能以非标示符开头
+            let error = format!("invalid syntax-rules clause {}", clause);
+            return ctx.syntax_error1("syntax-rules", &error);
+        }
+    } else {
+        // 最外层模式必须是列表结构
         let error = format!("invalid syntax-rules clause {}", clause);
         return ctx.syntax_error1("syntax-rules", &error);
-    }
+    };
 
-    *pattern.first_mut() = Symbol("_".to_string());
+    // 忽略最外层模式的第一个元素，因为它总是假定为命名这个语法规则的关键字
+    compiled_pattern.set_nth(0, &Symbol("_".to_string()));
+
+    let mut q = VecDeque::new();
+    q.push_back(&compiled_pattern);
     let mut idents = HashSet::new();
-    for expr in &pattern {
-        if let Symbol(ident) = expr {
-            if ident != UNDERSCORE && idents.contains(&ident) {
-                let error = if ident == ELLIPSIS {
-                    format!("misplaced ellipsis in pattern {}", pattern)
-                } else {
-                    format!("duplicate pattern variable {} in {}", ident, pattern)
-                };
-                return ctx.syntax_error1("syntax-rules", &error);
+    loop {
+        let pat = if let Some(pat) = q.pop_front() {
+            pat
+        } else {
+            return Ok(compiled_pattern);
+        };
+
+        let mut ellipsis = 0;
+        for (index, expr) in pat.as_slice().unwrap().iter().enumerate() {
+            if let Symbol(ident) = expr {
+                if ident == ELLIPSIS {
+                    if ellipsis > 0 || index == 0 {
+                        let error = format!("misplaced ellipsis in pattern {}", compiled_pattern);
+                        return ctx.syntax_error1("syntax-rules", &error);
+                    }
+                    ellipsis += 1;
+                } else if idents.contains(&ident) {
+                    let error = format!("duplicate pattern variable {} in {}", ident, compiled_pattern);
+                    return ctx.syntax_error1("syntax-rules", &error);
+                } else if ident != UNDERSCORE {
+                    idents.insert(ident);
+                }
+            } else if expr.is_pair() {
+                q.push_back(expr)
             }
-            idents.insert(ident);
         }
     }
-
-    Ok((pattern, template))
 }
