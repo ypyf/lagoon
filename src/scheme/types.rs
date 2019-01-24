@@ -62,12 +62,12 @@ impl Context {
         self.env.pop();
     }
 
-    pub fn define_variable(&mut self, name: &str, val: &Sexp) {
+    pub fn bind(&mut self, name: &str, val: &Sexp) {
         let var = Rc::new(RefCell::new(val.clone()));
         self.env.last_mut().unwrap().insert(name.to_owned(), var);
     }
 
-    pub fn set_variable(&mut self, name: &str, val: &Sexp) -> bool {
+    pub fn assign(&mut self, name: &str, val: &Sexp) -> bool {
         if let Some(var) = self.lookup(name) {
             *var.borrow_mut() = val.clone();
             true
@@ -82,7 +82,7 @@ impl Context {
             special: true,
             func,
         };
-        self.define_variable(name, &form);
+        self.bind(name, &form);
     }
 
     pub fn def_proc(&mut self, name: &str, func: Function) {
@@ -91,7 +91,7 @@ impl Context {
             special: false,
             func,
         };
-        self.define_variable(name, &proc);
+        self.bind(name, &proc);
     }
 
     pub fn lookup(&self, name: &str) -> Option<Rc<RefCell<Sexp>>> {
@@ -157,7 +157,7 @@ impl Context {
             if let (idents, true) = Context::match_syntax_rule(keyword, &rule.pattern, &form) {
                 self.enter_scope();
                 for (ident, datum) in idents {
-                    self.define_variable(&ident, &datum);
+                    self.bind(&ident, &datum);
                 }
                 // 注意这里使用的ctx以及求值的顺序
                 let res = self.eval(&rule.template)?;
@@ -277,18 +277,18 @@ impl Context {
                 match vararg {
                     Some(sym) => {
                         for (k, v) in params.iter().zip(vals.iter()) {
-                            context.define_variable(k, v);
+                            context.bind(k, v);
                         }
                         let ref val = if nargs == nparams {
                             Nil
                         } else {
                             List(vals[nparams..].to_vec(), Rc::new(Nil))
                         };
-                        context.define_variable(&sym, val);
+                        context.bind(&sym, val);
                     }
                     _ => {
                         for (k, v) in params.iter().zip(vals.iter()) {
-                            context.define_variable(k, v);
+                            context.bind(k, v);
                         }
                     }
                 }

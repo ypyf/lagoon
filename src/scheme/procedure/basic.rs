@@ -36,9 +36,9 @@ pub fn define(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
             match val {
                 Closure { name: _, params, vararg, body, context } => {
                     let closure = Closure { name: sym.clone(), params, vararg, body, context };
-                    ctx.define_variable(sym, &closure);
+                    ctx.bind(sym, &closure);
                 }
-                _ => ctx.define_variable(sym, &val)
+                _ => ctx.bind(sym, &val)
             }
         }
         List(init, last) => match **last {
@@ -80,7 +80,7 @@ pub fn assign(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
     match &exprs[0] {
         Symbol(sym) => {
             let val = ctx.eval(&exprs[1])?;
-            if ctx.set_variable(sym, &val) {
+            if ctx.assign(sym, &val) {
                 Ok(Void)
             } else {
                 return Err(AssignError("cannot set undefined".to_owned(), ctx.clone()));
@@ -180,7 +180,7 @@ pub fn define_syntax(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
                     Err(BadSyntax("define-syntax".to_owned(), Some("only a `syntax-rules' form is allowed".to_owned())))
                 } else {
                     let transformer = syntax_rules(ctx, datum)?;
-                    ctx.define_variable(keyword, &Syntax { keyword: keyword.clone(), transformer });
+                    ctx.bind(keyword, &Syntax { keyword: keyword.clone(), transformer });
                     Ok(Void)
                 }
             } else {

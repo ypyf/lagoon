@@ -101,7 +101,7 @@ impl Interpreter {
                                 res_no += 1;
                                 let last_res = format!("${}", res_no);
                                 if self.ctx.lookup(&last_res).is_none() {
-                                    self.ctx.define_variable(&last_res, &val);
+                                    self.ctx.bind(&last_res, &val);
                                 }
                                 println!("{} = {}", last_res, val);
                             }
