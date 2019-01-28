@@ -1,9 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::fmt;
 use std::rc::Rc;
 use std::str;
 use std::cell::RefCell;
+use scheme::data::iterator::{ListIterator, ListIntoIterator};
 
 pub const UNDERSCORE: &str = "_";
 
@@ -129,18 +130,14 @@ impl Context {
                 None => Err(Undefined(name.to_string())),
             },
             Nil => return Err(ApplyError("missing procedure expression".to_owned())),
-            List(v, t) => {
+            List(xs) => {
                 self.nest_level += 1;
                 self.last_expr = Rc::new(expr.clone());
-                if v.is_empty() {
-                    return Err(ApplyError("missing procedure expression".to_owned()));
-                }
-                let proc = self.eval(&v[0])?;
+                let proc = self.eval(xs.first().unwrap())?;
                 let ret = match proc {
                     Syntax { keyword, transformer } => self.apply_transformer(&keyword, transformer, expr.clone()),
                     _ => {
-                        let mut args = v[1..].to_vec();
-                        args.push((**t).clone());
+                        let args = expr.tail().unwrap().to_vec();
                         self.apply(proc, args)
                     }
                 };
@@ -152,71 +149,98 @@ impl Context {
     }
 
     fn apply_transformer(&mut self, keyword: &str, transformer: Transformer, form: Sexp) -> LispResult<Sexp> {
-        for rule in transformer.rules {
-            println!("match {} {}", rule.pattern, form);
-            if let (idents, true) = Context::match_syntax_rule(keyword, &rule.pattern, &form) {
-                self.enter_scope();
-                for (ident, datum) in idents {
-                    self.bind(&ident, &datum);
-                }
-                // 注意这里使用的ctx以及求值的顺序
-                let res = self.eval(&rule.template)?;
-                self.leave_scope();
-                return self.eval(&res);
+        let mut rules = transformer.rules.clone();
+        for rule in &mut rules {
+            println!("{}", rule.pattern);
+            if let Some(bindings) = Context::match_syntax_rule(&rule.pattern, &form) {
+//                dbg!(&bindings);
+                let expr = self.render_template(&bindings, &rule.template);
+                println!("{}", expr);
+                return self.eval(&expr);
             }
         }
         self.syntax_error(keyword)
     }
 
-    fn match_syntax_rule(keyword: &str, pat: &Sexp, form: &Sexp) -> (HashMap<String, Sexp>, bool) {
+    fn render_template(&mut self, bindings: &HashMap<String, Sexp>, template: &Sexp) -> Sexp {
         use self::Sexp::*;
-        let mut list_stack = vec![];
-        let mut bindings = HashMap::new();
-        let mut a = pat.clone();
-        let mut b = form.clone();
+        let mut q = VecDeque::new();
+        let mut r: Sexp = Nil;
+        q.push_back(template);
         loop {
-            match &a {
-                // FIXME 判断literals
-                Symbol(ident) => if ident != keyword && ident != ELLIPSIS {
-                    bindings.insert(ident.clone(), b.clone());
-                } else {
-                    //bindings.insert(ident.clone(), current_b.clone());
+            let list: &Sexp = if let Some(list) = q.pop_front() {
+                list
+            } else {
+                return r;
+            };
+
+            for (index, item) in list.into_iter().enumerate() {
+                if let Symbol(ident) = &item {
+                    if let Some(val) = bindings.get(ident) {
+                        r = list.clone();
+                        r.set_nth(index, val);
+                    }
+                } else if item.is_pair() {
+                    q.push_back(item)
                 }
-                List(init1, last1) => match &b {
-                    List(init2, last2) => {
-                        // FIXME 匹配可变参数和ellipsis
-                        let mut pos = 0;    // 记录固定实参数的位置
-                        for a in init1 {
-                            match a {
-                                Symbol(ident) => if ident == ELLIPSIS {
-                                    list_stack.push((a.clone(), form.clone()))
-                                } else {
-                                    if init2.len() <= pos {
-                                        return (bindings, false);
-                                    }
-                                    list_stack.push((a.clone(), init2[pos].clone()));
-                                    pos += 1;
-                                }
-                                _ => {
-                                    if init2.len() <= pos {
-                                        return (bindings, false);
-                                    }
-                                    list_stack.push((a.clone(), init2[pos].clone()));
-                                    pos += 1;
-                                }
-                            }
+            }
+            r = list.clone();
+        }
+    }
+
+    fn match_syntax_rule(pat: &Sexp, form: &Sexp) -> Option<HashMap<String, Sexp>> {
+        use self::Sexp::*;
+        let mut q: VecDeque<(&Sexp, &Sexp)> = VecDeque::new();
+        let mut bindings = HashMap::new();
+        q.push_back((pat, form));
+        loop {
+            let (p, f): (&Sexp, &Sexp) = if let Some((a, b)) = q.pop_front() {
+                (a, b)
+            } else {
+                return Some(bindings);
+            };
+
+            if p.is_list() != f.is_list() {
+                return None;
+            }
+
+            let mut index_b = 0;
+            for (index, a) in p.as_slice().unwrap().iter().enumerate() {
+                if let Symbol(ident) = a {
+                    if ident == ELLIPSIS {
+                        if f.list_count() < p.list_count() - 2 {
+                            return None;
+                        }
+                    } else if ident != UNDERSCORE {
+                        if let Some(b) = f.nth(index) {
+                            index_b += 1;
+                            bindings.insert(ident.clone(), b.clone());
+                            continue;
+                        }
+                        return None;
+                    }
+                } else if a.is_pair() {
+                    if let Some(b) = f.nth(index) {
+                        index_b += 1;
+                        if b.is_pair() {
+                            q.push_back((a, b));
+                            continue;
                         }
                     }
-                    _ => return (bindings, false),
-                },
-                _ => if a != b { return (bindings, false); }
+                    return None;
+                } else {
+                    if let Some(b) = f.nth(index) {
+                        index_b += 1;
+                        if a == b {
+                            continue;
+                        }
+                    }
+                    return None;
+                }
             }
-            if list_stack.is_empty() {
-                return (bindings, true);
-            } else {
-                let (a1, b1) = list_stack.pop().unwrap();
-                a = a1;
-                b = b1;
+
+            if index_b + 1 != f.list_count() {
+                return None;
             }
         }
     }
@@ -282,7 +306,9 @@ impl Context {
                         let ref val = if nargs == nparams {
                             Nil
                         } else {
-                            List(vals[nparams..].to_vec(), Rc::new(Nil))
+                            let mut xs = vals[nparams..].to_vec();
+                            xs.push(Nil);
+                            List(xs)
                         };
                         context.bind(&sym, val);
                     }
@@ -329,7 +355,7 @@ pub enum Sexp {
     False,
     Number(i64),
     Symbol(String),
-    List(Vec<Sexp>, Rc<Sexp>),
+    List(Vec<Sexp>),
     Function {
         name: String,
         special: bool,
@@ -347,6 +373,25 @@ pub enum Sexp {
         keyword: String,
         transformer: Transformer,
     },
+}
+
+impl IntoIterator for Sexp {
+    type Item = Sexp;
+    type IntoIter = ListIntoIterator;
+
+    fn into_iter(self) -> Self::IntoIter {
+        ListIntoIterator::new(self)
+    }
+}
+
+impl<'a> IntoIterator for &'a Sexp {
+    type Item = &'a Sexp;
+    type IntoIter = ListIterator<'a>;
+
+    // 注意这里的self是引用
+    fn into_iter(self) -> Self::IntoIter {
+        ListIterator::new(self)
+    }
 }
 
 impl Sexp {
@@ -378,7 +423,7 @@ impl Sexp {
 
     // pair?
     pub fn is_pair(&self) -> bool {
-        if let Sexp::List(_, _) = self {
+        if let Sexp::List(_) = self {
             true
         } else {
             false
@@ -390,69 +435,90 @@ impl Sexp {
         use self::Sexp::*;
         match self {
             Nil => true,
-            List(_, last) => match **last {
-                Nil => true,
-                _ => false,
-            }
-            _ => false,
-        }
-    }
-
-    pub fn is_improper_list(&self) -> bool {
-        use self::Sexp::*;
-        match self {
-            List(_, last) => match **last {
-                Nil => false,
-                _ => true,
+            List(xs) => {
+                *xs.last().unwrap() == Nil
             }
             _ => false,
         }
     }
 
     // 计算元素个数（不包括尾部的Nil, 不递归计算）
-    pub fn count(&self) -> usize {
+    pub fn list_count(&self) -> usize {
         use self::Sexp::*;
-        if let List(init, last) = self {
-            if **last != Nil {
-                init.len() + 1
+        if let List(xs) = self {
+            if self.is_list() {
+                xs.len() - 1
             } else {
-                init.len()
+                xs.len()
             }
         } else {
-            1
+            panic!()
         }
     }
 
-    pub fn to_vec(&self) -> Vec<Self> {
-        use self::Sexp::*;
-        match self {
-            Nil => vec![],
-            List(init, last) => if **last == Nil {
-                init.clone()
+    pub fn init(&self) -> Option<&[Sexp]> {
+        if let Sexp::List(xs) = self {
+            let (_, init) = xs.split_last().unwrap();
+            Some(init)
+        } else {
+            None
+        }
+    }
+
+    pub fn tail(&self) -> Option<&[Sexp]> {
+        if let Sexp::List(xs) = self {
+            let (_, tail) = xs.split_first().unwrap();
+            Some(tail)
+        } else {
+            None
+        }
+    }
+
+    // 返回指定下标后的元素，不包括尾部的Nil
+    pub fn rest(&self, from: usize) -> Option<&[Sexp]> {
+        if let Sexp::List(xs) = self {
+            if self.is_list() {
+                Some(&xs[from..xs.len() - 1])
             } else {
-                let mut res = init.clone();
-                res.push((**last).clone());
-                res
+                Some(&xs[from..])
             }
-            _ => vec![self.clone()],
+        } else {
+            None
         }
     }
 
-    pub fn first(&self) -> &Self {
-        use self::Sexp::*;
-        if let List(init, _) = self {
-            &init[0]
+    // 返回列表中的第n个元素，不包含尾部的Nil
+    pub fn nth(&self, n: usize) -> Option<&Sexp> {
+        if let Sexp::List(xs) = self {
+            if n >= self.list_count() {
+                return None;
+            }
+            Some(&xs[n])
         } else {
-            self
+            None
         }
     }
 
-    pub fn first_mut(&mut self) -> &mut Self {
-        use self::Sexp::*;
-        if let List(init, _) = self {
-            &mut init[0]
+    // 返回列表，不包含尾部的Nil
+    pub fn as_slice(&self) -> Option<&[Self]> {
+        if let Sexp::List(xs) = self {
+            if self.is_list() {
+                let (_, init) = xs.split_last().unwrap();
+                Some(init)
+            } else {
+                Some(xs)
+            }
         } else {
-            self
+            None
+        }
+    }
+
+    pub fn set_nth(&mut self, n: usize, sexp: &Sexp) {
+        if n >= self.list_count() {
+            return;
+        }
+        if let Sexp::List(xs) = self {
+            xs[n] = sexp.clone();
         }
     }
 
@@ -495,7 +561,7 @@ impl<'a> PartialEq for Sexp {
             (Number(n1), Number(n2)) => n1 == n2, // (= obj1 obj2)
             (Char(c1), Char(c2)) => c1 == c2,     // (char=? obj1 obj2)
             (Str(s1, _), Str(s2, _)) => s1 == s2,
-            (List(v1, b1), List(v2, b2)) => v1 == v2 && b1 == b2,
+            (List(xs1), List(xs2)) => xs1 == xs2,
             (
                 Function {
                     name: n1,
@@ -534,35 +600,23 @@ impl<'a> fmt::Display for Sexp {
                 write!(f, "#<procedure:{}>", name)
             }
             Syntax { keyword, .. } => write!(f, "#<syntax:{}>", keyword),
-            List(first, second) => {
-                let mut datum = String::with_capacity(first.len() + 2);
-                datum.push('(');
-                for expr in first.iter() {
-                    datum.push_str(format!("{} ", expr).as_str());
-                }
-
-                let mut exprs = second.clone();
-                loop {
-                    match *exprs {
-                        Nil => break,
-                        List(ref init, ref last) => {
-                            for expr in init.iter() {
-                                datum.push_str(format!("{} ", expr).as_str());
-                            }
-                            exprs = last.clone();
-                        }
-                        _ => {
-                            datum.push_str(format!(". {} ", exprs).as_str());
-                            break;
-                        }
+            List(xs) => {
+                let mut string = String::new();
+                let (last, init) = xs.split_last().unwrap();
+                string.push('(');
+                if self.is_list() {
+                    for expr in init {
+                        string.push_str(&format!("{} ", expr))
                     }
+                    string.pop();
+                } else {
+                    for expr in init {
+                        string.push_str(&format!("{} ", expr))
+                    }
+                    string.push_str(&format!(". {}", last));
                 }
-                // 删除多余空格
-                if datum.len() > 1 {
-                    datum.pop();
-                }
-                datum.push(')');
-                write!(f, "{}", datum)
+                string.push(')');
+                write!(f, "{}", string)
             }
         }
     }
