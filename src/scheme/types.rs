@@ -20,7 +20,6 @@ pub struct Context {
     pub env: Env,
     last_expr: Rc<Sexp>,
     current_proc: Rc<Sexp>,
-    // 当前apply的过程
     nest_level: i64,
 }
 
@@ -597,22 +596,20 @@ impl<'a> fmt::Display for Sexp {
             Closure { name, .. } => if name.is_empty() {
                 write!(f, "#<procedure>")
             } else {
-                write!(f, "#<procedure:{}>", name)
+                write!(f, "#<procedure {}>", name)
             }
             Syntax { keyword, .. } => write!(f, "#<syntax:{}>", keyword),
             List(xs) => {
                 let mut string = String::new();
-                let (last, init) = xs.split_last().unwrap();
                 string.push('(');
-                if self.is_list() {
-                    for expr in init {
-                        string.push_str(&format!("{} ", expr))
-                    }
+                let (last, init) = xs.split_last().unwrap();
+                for expr in init {
+                    string.push_str(&format!("{} ", expr))
+                }
+                if *last == Nil {
+                    // remove the last space
                     string.pop();
                 } else {
-                    for expr in init {
-                        string.push_str(&format!("{} ", expr))
-                    }
                     string.push_str(&format!(". {}", last));
                 }
                 string.push(')');
