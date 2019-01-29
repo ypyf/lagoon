@@ -29,6 +29,7 @@ impl Interpreter {
     }
 
     fn init_globals(&mut self) {
+        self.ctx.enter_scope();
         self.ctx.def_proc("+", |ctx, args| numeric::arith_op(Add, ctx, args));
         self.ctx.def_proc("-", |ctx, args| numeric::arith_op(Sub, ctx, args));
         self.ctx.def_proc("*", |ctx, args| numeric::arith_op(Mul, ctx, args));
@@ -88,7 +89,6 @@ impl Interpreter {
 
     pub fn run_repl(&mut self) {
         let mut res_no = 0;
-        self.ctx.enter_scope();
         self.init_globals();
         for expr in Reader::new() {
             match expr {

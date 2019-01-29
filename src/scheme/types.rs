@@ -8,7 +8,6 @@ use scheme::data::iterator::{ListIterator, ListIntoIterator};
 
 pub const UNDERSCORE: &str = "_";
 
-// 省略号默认为三点，可配置
 pub const ELLIPSIS: &str = "...";
 
 pub type LispResult<T> = Result<T, LispError>;
@@ -17,7 +16,7 @@ type Env = Vec<HashMap<String, Rc<RefCell<Sexp>>>>;
 
 #[derive(Debug, Clone)]
 pub struct Context {
-    pub env: Env,
+    env: Rc<RefCell<Env>>,
     last_expr: Rc<Sexp>,
     current_proc: Rc<Sexp>,
     nest_level: i64,
@@ -27,7 +26,7 @@ pub struct Context {
 impl Context {
     pub fn new() -> Self {
         Context {
-            env: Env::new(),
+            env: Rc::new(RefCell::new(Env::new())),
             last_expr: Rc::new(Sexp::Void),
             current_proc: Rc::new(Sexp::Void),
             nest_level: 0,
@@ -55,16 +54,16 @@ impl Context {
     }
 
     pub fn enter_scope(&mut self) {
-        self.env.push(HashMap::new())
+        self.env.borrow_mut().push(HashMap::new())
     }
 
     pub fn leave_scope(&mut self) {
-        self.env.pop();
+        self.env.borrow_mut().pop();
     }
 
     pub fn bind(&mut self, name: &str, val: &Sexp) {
         let var = Rc::new(RefCell::new(val.clone()));
-        self.env.last_mut().unwrap().insert(name.to_owned(), var);
+        self.env.borrow_mut().last_mut().unwrap().insert(name.to_owned(), var);
     }
 
     pub fn assign(&mut self, name: &str, val: &Sexp) -> bool {
@@ -95,7 +94,7 @@ impl Context {
     }
 
     pub fn lookup(&self, name: &str) -> Option<Rc<RefCell<Sexp>>> {
-        for current in self.env.iter().rev() {
+        for current in self.env.borrow().iter().rev() {
             if let Some(val) = current.get(name) {
                 return Some(val.clone());
             }
@@ -297,6 +296,7 @@ impl Context {
                     vals.push(val);
                 }
 
+                context.enter_scope();
                 match vararg {
                     Some(sym) => {
                         for (k, v) in params.iter().zip(vals.iter()) {
@@ -322,7 +322,9 @@ impl Context {
                 for expr in elements {
                     context.eval(&expr).unwrap();
                 }
-                context.eval(last)
+                let res = context.eval(last);
+                context.leave_scope();
+                res
             }
             _ => Err(ApplyError(format!("not a procedure: {}", proc))),
         }
@@ -592,13 +594,13 @@ impl<'a> fmt::Display for Sexp {
             Symbol(n) => write!(f, "{}", n),
             Char(n) => write!(f, "#\\{}", char_to_name(*n)),
             Str(n, _) => write!(f, "{:?}", n.borrow()), // 字符串输出时显示双引号
-            Function { name, .. } => write!(f, "#<procedure:{}>", name),
+            Function { name, .. } => write!(f, "#<procedure {}>", name),
             Closure { name, .. } => if name.is_empty() {
                 write!(f, "#<procedure>")
             } else {
                 write!(f, "#<procedure {}>", name)
             }
-            Syntax { keyword, .. } => write!(f, "#<syntax:{}>", keyword),
+            Syntax { keyword, .. } => write!(f, "#<syntax {}>", keyword),
             List(xs) => {
                 let mut string = String::new();
                 string.push('(');

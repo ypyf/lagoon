@@ -104,7 +104,7 @@ pub fn lambda(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
             params: vec![],
             vararg: None,
             body: exprs[1..].to_vec(),
-            context: (*ctx).clone(),
+            context: ctx.clone(),
         }),
         List(xs) => {
             let (last, init) = xs.split_last().unwrap();
@@ -125,7 +125,7 @@ pub fn lambda(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
                 params,
                 vararg,
                 body: exprs[1..].to_vec(),
-                context: (*ctx).clone(),
+                context: ctx.clone(),
             })
         }
         Symbol(sym) => {
@@ -134,7 +134,7 @@ pub fn lambda(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
                 params: vec![],
                 vararg: Some(sym.clone()),
                 body: exprs[1..].to_vec(),
-                context: (*ctx).clone(),
+                context: ctx.clone(),
             })
         }
         _ => return Err(BadSyntax("lambda".to_owned(), Some("not an identifier".to_owned()))),
