@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::error::Error;
 use std::fmt;
 use std::rc::Rc;
@@ -12,7 +12,7 @@ pub const ELLIPSIS: &str = "...";
 
 pub type LispResult<T> = Result<T, LispError>;
 
-type Env = HashMap<String, Rc<RefCell<Sexp>>>;
+type Env = BTreeMap<String, Rc<RefCell<Sexp>>>;
 
 #[derive(Debug, Clone)]
 pub struct Context {
@@ -34,13 +34,12 @@ impl Context {
 
     pub fn lookup(&self, name: &str) -> Option<Rc<RefCell<Sexp>>> {
         if let Some(val) = self.env.borrow().get(name) {
-            return Some(val.clone());
-        } else if let Some(up) = &self.up {
-            if let Some(val) = up.lookup(name) {
-                return Some(val);
-            }
+            Some(val.clone())
+        } else if let Some(ctx) = &self.up {
+            ctx.lookup(name)
+        } else {
+            None
         }
-        None
     }
 
     pub fn bind(&mut self, name: &str, val: &Sexp) {

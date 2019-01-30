@@ -14,7 +14,6 @@ use std::str;
 
 use self::regex::Regex;
 
-
 #[derive(Debug, PartialEq, Clone)]
 enum Token {
     EndOfFile,
