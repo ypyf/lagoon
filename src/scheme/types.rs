@@ -603,6 +603,27 @@ pub enum LispError {
     TypeMismatch(String, String),
 }
 
+impl<'a> PartialEq for LispError {
+    fn eq(&self, other: &LispError) -> bool {
+        use self::LispError::*;
+
+        match (self, other) {
+            (EndOfInput, EndOfInput) => true,
+            (Interrupted, Interrupted) => true,
+            (ReadError(_), ReadError(_)) => true,
+            (AssignError(_, _), AssignError(_, _)) => true,
+            (DivisionByZero(_), DivisionByZero(_)) => true,
+            (Undefined(_), Undefined(_)) => true,
+            (BadSyntax(_, _), BadSyntax(_, _)) => true,
+            (ApplyError(_), ApplyError(_)) => true,
+            (ArityMismatch(_, _, _), ArityMismatch(_, _, _)) => true,
+            (TypeMismatch(_, _), TypeMismatch(_, _)) => true,
+            (IndexOutOfRange(_, _, _, _), IndexOutOfRange(_, _, _, _)) => true,
+            (_, _) => false,
+        }
+    }
+}
+
 impl fmt::Display for LispError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::LispError::*;

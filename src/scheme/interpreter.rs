@@ -8,6 +8,7 @@ use scheme::procedure::list;
 use scheme::procedure::character;
 use scheme::reader::Reader;
 use scheme::types::Context;
+use scheme::types::LispResult;
 use scheme::types::LispError;
 use scheme::types::Sexp;
 
@@ -74,15 +75,20 @@ impl Interpreter {
 
     // 运行解释器
     // 只打印错误消息，不回显正确结果
-    pub fn run(&mut self, reader: Reader) {
+    pub fn run(&mut self, reader: Reader) -> LispResult<Sexp> {
+        let mut res = Ok(Sexp::Void);
         for item in reader {
             match item {
-                Ok(expr) => if let Err(err) = self.ctx.eval(&expr) {
-                    eprintln!("{}", err)
+                Ok(expr) => {
+                    res = self.ctx.eval(&expr);
+                    if res.is_err() {
+                        return res
+                    }
                 }
-                Err(err) => eprintln!("{}", err)
+                Err(_) => return item
             }
         }
+        res
     }
 
     pub fn run_repl(&mut self) {
@@ -111,7 +117,7 @@ impl Interpreter {
         }
     }
 
-    pub fn run_once(&mut self, path: &str) {
+    pub fn run_once(&mut self, path: &str) -> LispResult<Sexp> {
         let file = match File::open(path) {
             Ok(file) => file,
             Err(err) => {
@@ -122,13 +128,13 @@ impl Interpreter {
         let mut reader = Reader::new();
         let mut input = BufReader::new(file);
         reader.set_input(&mut input);
-        self.run(reader);
+        self.run(reader)
     }
 
-    pub fn eval_string(&mut self, string: &str) {
+    pub fn eval_string(&mut self, string: &str) -> LispResult<Sexp> {
         let mut reader = Reader::new();
         let mut input = Cursor::new(string);
         reader.set_input(&mut input);
-        self.run(reader);
+        self.run(reader)
     }
 }
