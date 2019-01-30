@@ -74,7 +74,6 @@ impl Interpreter {
     }
 
     // 运行解释器
-    // 只打印错误消息，不回显正确结果
     pub fn run(&mut self, reader: Reader) -> LispResult<Sexp> {
         let mut res = Ok(Sexp::Void);
         for item in reader {
