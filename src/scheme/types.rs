@@ -12,58 +12,40 @@ pub const ELLIPSIS: &str = "...";
 
 pub type LispResult<T> = Result<T, LispError>;
 
-type Env = Vec<HashMap<String, Rc<RefCell<Sexp>>>>;
+type Env = HashMap<String, Rc<RefCell<Sexp>>>;
 
 #[derive(Debug, Clone)]
 pub struct Context {
     env: Rc<RefCell<Env>>,
-    last_expr: Rc<Sexp>,
-    current_proc: Rc<Sexp>,
-    nest_level: i64,
+    up: Option<Rc<Context>>,
 }
 
-#[allow(dead_code)]
 impl Context {
-    pub fn new() -> Self {
+    pub fn new(up: Option<Rc<Context>>) -> Self {
         Context {
             env: Rc::new(RefCell::new(Env::new())),
-            last_expr: Rc::new(Sexp::Void),
-            current_proc: Rc::new(Sexp::Void),
-            nest_level: 0,
+            up,
         }
     }
 
     pub fn is_toplevel(&self) -> bool {
-        self.nest_level == 0
+        self.up.is_none()
     }
 
-    pub fn get_current_expr(&self) -> Rc<Sexp> {
-        self.last_expr.clone()
-    }
-
-    pub fn set_current_expr(&mut self, expr: Rc<Sexp>) {
-        self.last_expr = expr
-    }
-
-    pub fn get_current_proc(&self) -> Rc<Sexp> {
-        self.current_proc.clone()
-    }
-
-    pub fn set_current_proc(&mut self, expr: Rc<Sexp>) {
-        self.current_proc = expr
-    }
-
-    pub fn enter_scope(&mut self) {
-        self.env.borrow_mut().push(HashMap::new())
-    }
-
-    pub fn leave_scope(&mut self) {
-        self.env.borrow_mut().pop();
+    pub fn lookup(&self, name: &str) -> Option<Rc<RefCell<Sexp>>> {
+        if let Some(val) = self.env.borrow().get(name) {
+            return Some(val.clone());
+        } else if let Some(up) = &self.up {
+            if let Some(val) = up.lookup(name) {
+                return Some(val);
+            }
+        }
+        None
     }
 
     pub fn bind(&mut self, name: &str, val: &Sexp) {
         let var = Rc::new(RefCell::new(val.clone()));
-        self.env.borrow_mut().last_mut().unwrap().insert(name.to_owned(), var);
+        self.env.borrow_mut().insert(name.to_owned(), var);
     }
 
     pub fn assign(&mut self, name: &str, val: &Sexp) -> bool {
@@ -93,15 +75,6 @@ impl Context {
         self.bind(name, &proc);
     }
 
-    pub fn lookup(&self, name: &str) -> Option<Rc<RefCell<Sexp>>> {
-        for current in self.env.borrow().iter().rev() {
-            if let Some(val) = current.get(name) {
-                return Some(val.clone());
-            }
-        }
-        None
-    }
-
     pub fn syntax_error<T>(&self, form: &str) -> LispResult<T> {
         Err(LispError::BadSyntax(form.to_string(), None))
     }
@@ -129,8 +102,6 @@ impl Context {
             },
             Nil => return Err(ApplyError("missing procedure expression".to_owned())),
             List(xs) => {
-                self.nest_level += 1;
-                self.last_expr = Rc::new(expr.clone());
                 let proc = self.eval(xs.first().unwrap())?;
                 let ret = match proc {
                     Syntax { keyword, transformer } => self.apply_transformer(&keyword, transformer, expr.clone()),
@@ -139,7 +110,6 @@ impl Context {
                         self.apply(proc, args)
                     }
                 };
-                self.nest_level -= 1;
                 ret
             }
             _ => Ok(expr.clone()), // 其它表达式求值到其本身
@@ -247,7 +217,6 @@ impl Context {
         use self::Sexp::*;
         use self::LispError::*;
 
-        self.set_current_proc(Rc::new(proc.clone()));
         let mut args = exprs;
         match proc {
             Function { name: _, special, func } => {
@@ -269,7 +238,7 @@ impl Context {
                     func(self, vals)
                 }
             }
-            Closure { name, params, vararg, body, mut context } => {
+            Closure { name, params, vararg, body, env } => {
                 if *args.last().unwrap() != Nil {
                     return self.syntax_error("apply");
                 }
@@ -296,11 +265,11 @@ impl Context {
                     vals.push(val);
                 }
 
-                context.enter_scope();
+                let mut ctx = Context::new(Some(Rc::new(env)));
                 match vararg {
-                    Some(sym) => {
+                    Some(ref name) => {
                         for (k, v) in params.iter().zip(vals.iter()) {
-                            context.bind(k, v);
+                            ctx.bind(k, v);
                         }
                         let ref val = if nargs == nparams {
                             Nil
@@ -309,22 +278,20 @@ impl Context {
                             xs.push(Nil);
                             List(xs)
                         };
-                        context.bind(&sym, val);
+                        ctx.bind(name, val);
                     }
                     _ => {
                         for (k, v) in params.iter().zip(vals.iter()) {
-                            context.bind(k, v);
+                            ctx.bind(k, v);
                         }
                     }
                 }
                 // FIXME tail call optimization
-                let (last, elements) = body.split_last().unwrap();
-                for expr in elements {
-                    context.eval(&expr).unwrap();
+                let (last, init) = body.split_last().unwrap();
+                for expr in init {
+                    ctx.eval(&expr).unwrap();
                 }
-                let res = context.eval(last);
-                context.leave_scope();
-                res
+                ctx.eval(last)
             }
             _ => Err(ApplyError(format!("not a procedure: {}", proc))),
         }
@@ -368,7 +335,7 @@ pub enum Sexp {
         params: Vec<String>,
         vararg: Option<String>,
         body: Vec<Sexp>,
-        context: Context,
+        env: Context,
     },
     Syntax {
         keyword: String,

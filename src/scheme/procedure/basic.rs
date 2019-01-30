@@ -33,8 +33,8 @@ pub fn define(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
         Symbol(sym) => {
             let val = ctx.eval(&exprs[1])?;
             match val {
-                Closure { name: _, params, vararg, body, context } => {
-                    let closure = Closure { name: sym.clone(), params, vararg, body, context };
+                Closure { name: _, params, vararg, body, env } => {
+                    let closure = Closure { name: sym.clone(), params, vararg, body, env };
                     ctx.bind(sym, &closure);
                 }
                 _ => ctx.bind(sym, &val)
@@ -104,7 +104,7 @@ pub fn lambda(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
             params: vec![],
             vararg: None,
             body: exprs[1..].to_vec(),
-            context: ctx.clone(),
+            env: ctx.clone(),
         }),
         List(xs) => {
             let (last, init) = xs.split_last().unwrap();
@@ -125,7 +125,7 @@ pub fn lambda(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
                 params,
                 vararg,
                 body: exprs[1..].to_vec(),
-                context: ctx.clone(),
+                env: ctx.clone(),
             })
         }
         Symbol(sym) => {
@@ -134,7 +134,7 @@ pub fn lambda(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
                 params: vec![],
                 vararg: Some(sym.clone()),
                 body: exprs[1..].to_vec(),
-                context: ctx.clone(),
+                env: ctx.clone(),
             })
         }
         _ => return Err(BadSyntax("lambda".to_owned(), Some("not an identifier".to_owned()))),

@@ -11,7 +11,6 @@ use scheme::types::Context;
 use scheme::types::LispError;
 use scheme::types::Sexp;
 
-use std::rc::Rc;
 use std::fs::File;
 use std::process::exit;
 use std::io::BufReader;
@@ -23,13 +22,14 @@ pub struct Interpreter {
 
 impl Interpreter {
     pub fn new() -> Self {
-        Interpreter {
-            ctx: Context::new(),
-        }
+        let mut interp = Interpreter {
+            ctx: Context::new(None),
+        };
+        interp.init_globals();
+        interp
     }
 
     fn init_globals(&mut self) {
-        self.ctx.enter_scope();
         self.ctx.def_proc("+", |ctx, args| numeric::arith_op(Add, ctx, args));
         self.ctx.def_proc("-", |ctx, args| numeric::arith_op(Sub, ctx, args));
         self.ctx.def_proc("*", |ctx, args| numeric::arith_op(Mul, ctx, args));
@@ -75,8 +75,6 @@ impl Interpreter {
     // 运行解释器
     // 只打印错误消息，不回显正确结果
     pub fn run(&mut self, reader: Reader) {
-        self.ctx.enter_scope();
-        self.init_globals();
         for item in reader {
             match item {
                 Ok(expr) => if let Err(err) = self.ctx.eval(&expr) {
@@ -89,11 +87,9 @@ impl Interpreter {
 
     pub fn run_repl(&mut self) {
         let mut res_no = 0;
-        self.init_globals();
         for expr in Reader::new() {
             match expr {
                 Ok(ref sexp) => {
-                    self.ctx.set_current_expr(Rc::new(sexp.clone()));
                     match self.ctx.eval(sexp) {
                         Ok(val) => match val {
                             Sexp::Void => (),
@@ -113,7 +109,6 @@ impl Interpreter {
                 Err(err) => eprintln!("{}", err),
             }
         }
-        self.ctx.leave_scope();
     }
 
     pub fn run_once(&mut self, path: &str) {
