@@ -81,7 +81,7 @@ impl Interpreter {
                 Ok(expr) => {
                     res = self.ctx.eval(&expr);
                     if res.is_err() {
-                        return res
+                        return res;
                     }
                 }
                 Err(_) => return item

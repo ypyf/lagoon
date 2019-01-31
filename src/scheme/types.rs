@@ -5,6 +5,8 @@ use std::rc::Rc;
 use std::str;
 use std::cell::RefCell;
 use scheme::data::iterator::{ListIterator, ListIntoIterator};
+use std::iter::Zip;
+use std::slice::Iter;
 
 pub const UNDERSCORE: &str = "_";
 
@@ -44,13 +46,19 @@ impl Context {
             }
             current = &ctx.up;
         }
-
         None
     }
 
     pub fn bind(&mut self, name: &str, expr: &Sexp) {
         let val = Rc::new(RefCell::new(expr.clone()));
         self.env.borrow_mut().insert(name.to_owned(), val);
+    }
+
+    pub fn bindv(&mut self, coll: Rc<Zip<Iter<String>, Iter<Sexp>>>) {
+        for (k, v) in (*coll).clone() {
+            let val = Rc::new(RefCell::new(v.clone()));
+            self.env.borrow_mut().insert(k.to_string(), val);
+        }
     }
 
     pub fn assign(&mut self, name: &str, val: &Sexp) -> bool {
@@ -95,33 +103,33 @@ impl Context {
         match expr {
             Symbol(name) => match self.lookup(&name) {
                 // 顶层求值syntax是语法错误
-                Some(val) => if self.is_toplevel() {
-                    match val.borrow().clone() {
-                        Syntax { keyword, .. } => self.syntax_error(&keyword),
-                        otherwise => Ok(otherwise)
+                Some(val) => {
+                    let val = val.borrow().clone();
+                    match &val {
+                        Syntax { keyword, .. } => if self.is_toplevel() {
+                            self.syntax_error(&keyword)
+                        } else {
+                            Ok(val)
+                        }
+                        _ => Ok(val)
                     }
-                } else {
-                    Ok(val.borrow().clone())
                 }
                 None => Err(Undefined(name.to_string())),
             },
             Nil => return Err(ApplyError("missing procedure expression".to_owned())),
             List(xs) => {
-                let proc = self.eval(&xs[0])?;
-                let ret = match proc {
-                    Syntax { keyword, transformer } => self.apply_transformer(&keyword, transformer, expr.clone()),
-                    _ => {
-                        let args = expr.tail().unwrap();
-                        self.apply(&proc, args)
-                    }
-                };
-                ret
+                let (head, tail) = xs.split_first().unwrap();
+                let proc = self.eval(head)?;
+                match proc {
+                    Syntax { keyword, transformer } => self.apply_transformer(&keyword, transformer, expr),
+                    _ => self.apply(&proc, tail),
+                }
             }
             _ => Ok(expr.clone()), // 其它表达式求值到其本身
         }
     }
 
-    fn apply_transformer(&mut self, keyword: &str, transformer: Transformer, form: Sexp) -> LispResult<Sexp> {
+    fn apply_transformer(&mut self, keyword: &str, transformer: Transformer, form: &Sexp) -> LispResult<Sexp> {
         let mut rules = transformer.rules.clone();
         for rule in &mut rules {
             println!("{}", rule.pattern);
@@ -227,7 +235,7 @@ impl Context {
             Function { name: _, special, func } => {
                 if *special {
                     let args = if *last == Nil {
-                       init
+                        init
                     } else {
                         exprs
                     };
@@ -236,11 +244,7 @@ impl Context {
                     if *last != Nil {
                         return self.syntax_error("apply");
                     }
-                    let mut vals = Vec::with_capacity(init.len());
-                    for arg in init {
-                        let val = self.eval(&arg)?;
-                        vals.push(val);
-                    }
+                    let vals: Vec<Sexp> = init.iter().map(|e| self.eval(e).unwrap()).collect();
                     func(self, &vals)
                 }
             }
@@ -257,25 +261,19 @@ impl Context {
 
                 let nparams = params.len();
                 let nargs = init.len();
-                if nargs < nparams && vararg.is_some() {
-                    // FIXME expected least nparams...
-                    return Err(ArityMismatch(func_name.to_string(), nparams, nargs));
-                } else if nargs != nparams && vararg.is_none() {
-                    return Err(ArityMismatch(func_name.to_string(), nparams, nargs));
-                }
 
-                let mut vals = Vec::with_capacity(init.len());
-                for arg in init {
-                    vals.push(self.eval(&arg)?);
-                }
+                let args: Vec<Sexp> = init.iter().map(|e| self.eval(e).unwrap()).collect();
 
                 let mut ctx = Context::new(Some(Rc::new(env.clone())));
+
                 match vararg {
                     Some(ref name) => {
-                        let (pos, rest) = vals.split_at(nparams);
-                        for (k, v) in params.iter().zip(pos) {
-                            ctx.bind(k, v);
+                        if nargs < nparams {
+                            // FIXME expected least nparams...
+                            return Err(ArityMismatch(func_name.to_string(), nparams, nargs));
                         }
+                        let (pos, rest) = args.split_at(nparams);
+                        ctx.bindv(Rc::new(params.iter().zip(pos)));
                         let varg = if nargs == nparams {
                             Nil
                         } else {
@@ -285,14 +283,17 @@ impl Context {
                         };
                         ctx.bind(name, &varg);
                     }
-                    _ => for (k, v) in params.iter().zip(&vals) {
-                        ctx.bind(k, v);
+                    _ => {
+                        if nargs != nparams {
+                            return Err(ArityMismatch(func_name.to_string(), nparams, nargs));
+                        }
+                        ctx.bindv(Rc::new(params.iter().zip(&args)));
                     }
                 }
                 // FIXME tail call optimization
                 let (last, init) = body.split_last().unwrap();
                 for expr in init {
-                    ctx.eval(&expr)?;
+                    ctx.eval(expr)?;
                 }
                 ctx.eval(last)
             }
