@@ -35,9 +35,9 @@ pub fn define(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
             match val {
                 Closure { name: _, params, vararg, body, env } => {
                     let closure = Closure { name: sym.clone(), params, vararg, body, env };
-                    ctx.bind(sym, &closure);
+                    ctx.insert(sym, &closure);
                 }
-                _ => ctx.bind(sym, &val)
+                _ => ctx.insert(sym, &val)
             }
         }
         List(xs) => match xs.last().unwrap() {
@@ -183,7 +183,7 @@ pub fn define_syntax(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
                     Err(BadSyntax("define-syntax".to_owned(), Some("only a `syntax-rules' form is allowed".to_owned())))
                 } else {
                     let transformer = syntax_rules(ctx, datum)?;
-                    ctx.bind(keyword, &Syntax { keyword: keyword.clone(), transformer });
+                    ctx.insert(keyword, &Syntax { keyword: keyword.clone(), transformer });
                     Ok(Void)
                 }
             } else {

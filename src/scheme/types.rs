@@ -5,8 +5,6 @@ use std::rc::Rc;
 use std::str;
 use std::cell::RefCell;
 use scheme::data::iterator::{ListIterator, ListIntoIterator};
-use std::iter::Zip;
-use std::slice::Iter;
 
 pub const UNDERSCORE: &str = "_";
 
@@ -49,13 +47,13 @@ impl Context {
         None
     }
 
-    pub fn bind(&mut self, name: &str, expr: &Sexp) {
+    pub fn insert(&mut self, name: &str, expr: &Sexp) {
         let val = Rc::new(RefCell::new(expr.clone()));
         self.env.borrow_mut().insert(name.to_owned(), val);
     }
 
-    pub fn bindv(&mut self, coll: Rc<Zip<Iter<String>, Iter<Sexp>>>) {
-        for (k, v) in (*coll).clone() {
+    pub fn insert_many(&mut self, keys: &[String], values: &[Sexp]) {
+        for (k, v) in keys.iter().zip(values) {
             let val = Rc::new(RefCell::new(v.clone()));
             self.env.borrow_mut().insert(k.to_string(), val);
         }
@@ -76,7 +74,7 @@ impl Context {
             special: true,
             func,
         };
-        self.bind(name, &form);
+        self.insert(name, &form);
     }
 
     pub fn def_proc(&mut self, name: &str, func: Function) {
@@ -85,7 +83,7 @@ impl Context {
             special: false,
             func,
         };
-        self.bind(name, &proc);
+        self.insert(name, &proc);
     }
 
     pub fn syntax_error<T>(&self, form: &str) -> LispResult<T> {
@@ -273,7 +271,7 @@ impl Context {
                             return Err(ArityMismatch(func_name.to_string(), nparams, nargs));
                         }
                         let (pos, rest) = args.split_at(nparams);
-                        ctx.bindv(Rc::new(params.iter().zip(pos)));
+                        ctx.insert_many(params, pos);
                         let varg = if nargs == nparams {
                             Nil
                         } else {
@@ -281,13 +279,13 @@ impl Context {
                             xs.push(Nil);
                             List(xs)
                         };
-                        ctx.bind(name, &varg);
+                        ctx.insert(name, &varg);
                     }
                     _ => {
                         if nargs != nparams {
                             return Err(ArityMismatch(func_name.to_string(), nparams, nargs));
                         }
-                        ctx.bindv(Rc::new(params.iter().zip(&args)));
+                        ctx.insert_many(params, &args);
                     }
                 }
                 // FIXME tail call optimization
