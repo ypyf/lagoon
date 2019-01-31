@@ -30,57 +30,51 @@ impl fmt::Display for Operator {
     }
 }
 
-pub fn arith_op(op: Operator, _context: &mut Context, args: &[Sexp]) -> LispResult<Sexp> {
+pub fn arith_op(operator: Operator, _context: &mut Context, args: &[Sexp]) -> LispResult<Sexp> {
     use self::Operator::*;
-    // 检查参数类型
-    let mut vals = Vec::with_capacity(args.len());
-    for arg in args {
-        match arg {
-            Number(n) => vals.push(*n),
-            _ => return Err(TypeMismatch("number".to_owned(), format!("{}", arg))),
-        }
+    let coll: Result<Vec<_>, _> = args.iter().map(|arg| if let Number(n) = arg { Ok(*n) } else { Err(arg) }).collect();
+    if coll.is_err() {
+        return Err(TypeMismatch("number".to_owned(), format!("{}", coll.unwrap_err())));
     }
-    let arity = vals.len();
-    let res = match op {
-        Add => vals.into_iter().fold(0, ops::Add::add),
+    let nums = coll.unwrap();
+    let res = match operator {
+        Add => nums.iter().fold(0, ops::Add::add),
         Sub => {
-            if arity == 0 {
-                return Err(ArityMismatch(op.to_string(), 1, arity));
+            if nums.len() == 0 {
+                return Err(ArityMismatch(operator.to_string(), 1, 0));
             }
-            vals.into_iter().fold1(ops::Sub::sub).unwrap()
+            nums.into_iter().fold1(ops::Sub::sub).unwrap()
         }
-        Mul => vals.into_iter().fold(1, ops::Mul::mul),
+        Mul => nums.iter().fold(1, ops::Mul::mul),
         Div => {
-            if arity == 0 {
-                return Err(ArityMismatch(op.to_string(), 1, arity));
+            if nums.len() == 0 {
+                return Err(ArityMismatch(operator.to_string(), 1, 0));
             }
-            if vals[1..].iter().map(|&x| x == 0).fold(false, |acc, b| acc || b) {
+            if nums[1..].iter().map(|&x| x == 0).fold(false, |acc, b| acc || b) {
                 return Err(DivisionByZero("/".to_owned()));
             }
-            vals.into_iter().fold1(ops::Div::div).unwrap()
+            nums.into_iter().fold1(ops::Div::div).unwrap()
         }
     };
     Ok(Number(res))
 }
 
-pub fn compare<F>(name: &str, op: F, _context: &mut Context, args: &[Sexp]) -> LispResult<Sexp> where
+pub fn compare<F>(name: &str, operator: F, _context: &mut Context, args: &[Sexp]) -> LispResult<Sexp> where
     F: Fn(i64, i64) -> bool {
-    let mut vals = Vec::with_capacity(args.len());
-    for arg in args {
-        match arg {
-            Number(n) => vals.push(*n),
-            _ => return Err(TypeMismatch("number".to_owned(), format!("{}", arg))),
-        }
-    }
-
-    let arity = vals.len();
+    let arity = args.len();
     if arity < 2 {
         return Err(ArityMismatch(name.to_string(), 2, arity));
     }
 
+    let coll: Result<Vec<_>, _> = args.iter().map(|arg| if let Number(n) = arg { Ok(*n) } else { Err(arg) }).collect();
+    if coll.is_err() {
+        return Err(TypeMismatch("number".to_owned(), format!("{}", coll.unwrap_err())));
+    }
+    let nums = coll.unwrap();
+
     let mut acc = true;
-    for i in 0..vals.len() - 1 {
-        acc = acc && op(vals[i], vals[i + 1])
+    for i in 0..nums.len() - 1 {
+        acc = acc && operator(nums[i], nums[i + 1])
     }
 
     if acc {
