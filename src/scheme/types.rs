@@ -68,7 +68,7 @@ impl Context {
         }
     }
 
-    pub fn def_synatx(&mut self, name: &str, func: Function) {
+    pub fn def_synatx(&mut self, name: &str, func: HostFunction) {
         let form = Sexp::Function {
             name: name.to_owned(),
             special: true,
@@ -77,7 +77,7 @@ impl Context {
         self.insert(name, &form);
     }
 
-    pub fn def_proc(&mut self, name: &str, func: Function) {
+    pub fn def_proc(&mut self, name: &str, func: HostFunction) {
         let proc = Sexp::Function {
             name: name.to_owned(),
             special: false,
@@ -300,7 +300,7 @@ impl Context {
     }
 }
 
-pub type Function = fn(&mut Context, &[Sexp]) -> LispResult<Sexp>;
+pub type HostFunction = fn(&mut Context, &[Sexp]) -> LispResult<Sexp>;
 
 #[derive(Debug, Clone)]
 pub struct SyntaxRule {
@@ -329,14 +329,14 @@ pub enum Sexp {
     Function {
         name: String,
         special: bool,
-        func: Function,
+        func: HostFunction,
     },
     // Vector(Vec<&'a Sexp<'a>>),
     Closure {
         name: String,
         params: Vec<String>,
         vararg: Option<String>,
-        body: Vec<Sexp>,
+        body: Rc<Vec<Sexp>>,
         env: Context,
     },
     Syntax {

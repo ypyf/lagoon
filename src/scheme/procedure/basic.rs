@@ -8,6 +8,7 @@ use scheme::types::Sexp::*;
 use scheme::types::{UNDERSCORE, ELLIPSIS};
 
 use std::collections::{HashSet, VecDeque};
+use std::rc::Rc;
 
 pub fn quote(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
     let arity = exprs.len();
@@ -104,7 +105,7 @@ pub fn lambda(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
             name: String::new(),
             params: vec![],
             vararg: None,
-            body: body.to_vec(),
+            body: Rc::new(body.to_vec()),
             env: ctx.clone(),
         }),
         List(xs) => {
@@ -122,12 +123,11 @@ pub fn lambda(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
                     _ => return Err(BadSyntax("lambda".to_owned(), Some("not an identifier".to_owned()))),
                 }
             }
-
             Ok(Closure {
                 name: String::new(),
                 params,
                 vararg,
-                body: body.to_vec(),
+                body: Rc::new(body.to_vec()),
                 env: ctx.clone(),
             })
         }
@@ -136,7 +136,7 @@ pub fn lambda(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
                 name: String::new(),
                 params: vec![],
                 vararg: Some(ident.clone()),
-                body: body.to_vec(),
+                body: Rc::new(body.to_vec()),
                 env: ctx.clone(),
             })
         }
