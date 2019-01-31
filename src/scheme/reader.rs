@@ -230,19 +230,20 @@ impl<'a> Reader<'a> {
     }
 
     // 忽略空白和注释
-    fn skip_whitespace(line: &str) -> String {
-        let x = line.trim_start();
+    fn skip_whitespace(&mut self) {
+        let x = self.line.trim_start();
         if x.starts_with(';') {
-            return "".to_owned();
+            self.line.clear();
+        } else {
+            self.line = x.to_owned()
         }
-        x.to_owned()
     }
 
-    fn read_line(&mut self, continue_read: bool) -> Result<String, LispError> {
-        let mut line = Reader::skip_whitespace(&self.line);
-        while line.is_empty() {
+    fn read_line(&mut self, continue_read: bool) -> LispResult<()> {
+        self.skip_whitespace();
+        while self.line.is_empty() {
             let ret = if let Some(ref mut input) = self.input {
-                input.read_line(&mut line)
+                input.read_line(&mut self.line)
             } else {
                 let prompt = if self.nest_level == 0 && !continue_read && !self.string {
                     &self.ps1
@@ -251,21 +252,20 @@ impl<'a> Reader<'a> {
                 };
                 print!("{}", prompt);
                 io::stdout().flush().unwrap();
-                self.stdin.lock().read_line(&mut line)
+                self.stdin.lock().read_line(&mut self.line)
             };
 
             if let Err(err) = ret {
                 return Err(LispError::ReadError(err.to_string()));
             }
-
-            if line.is_empty() {
+            if self.line.is_empty() {
                 return Err(LispError::EndOfInput);
             }
             if !self.string {
-                line = Reader::skip_whitespace(&line);
+                self.skip_whitespace();
             }
         }
-        Ok(line.to_owned())
+        Ok(())
     }
 
     fn lookahead(&mut self) -> Result<Token, LispError> {
@@ -288,10 +288,11 @@ impl<'a> Reader<'a> {
             return Ok(token.unwrap());
         }
 
-        match self.read_line(false) {
-            Ok(line) => self.line = line.to_owned(),
-            Err(LispError::EndOfInput) => return Ok(EndOfFile),
-            Err(err) => return Err(err)
+        if let Err(err) = self.read_line(false) {
+            match err {
+                LispError::EndOfInput => return Ok(EndOfFile),
+                _ => return Err(err)
+            }
         }
 
         let line = self.line.clone();
@@ -307,10 +308,11 @@ impl<'a> Reader<'a> {
             let mut buffer = self.line.clone();
             loop {
                 self.line.clear();
-                match self.read_line(false) {
-                    Ok(line) => self.line = line.to_owned(),
-                    Err(LispError::EndOfInput) => return self.read_error_eof("a closing '\"'"),
-                    Err(err) => return Err(err)
+                if let Err(err) = self.read_line(false) {
+                    match err {
+                        LispError::EndOfInput => return self.read_error_eof("a closing '\"'"),
+                        _ => return Err(err)
+                    }
                 }
                 buffer.push_str(self.line.as_str());
                 for cap in self.re_string.captures_iter(&buffer) {
@@ -347,10 +349,11 @@ impl<'a> Reader<'a> {
 
         if line.starts_with(",@") {
             self.line = self.line.replacen(",@", "", 1);
-            match self.read_line(true) {
-                Ok(line) => self.line = line.to_owned(),
-                Err(LispError::EndOfInput) => return self.read_error_eof("unquoting ,@"),
-                Err(err) => return Err(err)
+            if let Err(err) = self.read_line(true) {
+                match err {
+                    LispError::EndOfInput => return self.read_error_eof("unquoting ,@"),
+                    _ => return Err(err)
+                }
             }
             return Ok(UnquoteSplicing);
         }
@@ -374,26 +377,29 @@ impl<'a> Reader<'a> {
                 return Ok(Rune(')'));
             }
             '\'' => {
-                match self.read_line(true) {
-                    Ok(line) => self.line = line.to_owned(),
-                    Err(LispError::EndOfInput) => return self.read_error_eof("quoting '"),
-                    Err(err) => return Err(err)
+                if let Err(err) = self.read_line(true) {
+                    match err {
+                        LispError::EndOfInput => return self.read_error_eof("quoting '"),
+                        _ => return Err(err)
+                    }
                 }
                 return Ok(Quote);
             }
             '`' => {
-                match self.read_line(true) {
-                    Ok(line) => self.line = line.to_owned(),
-                    Err(LispError::EndOfInput) => return self.read_error_eof("quasiquoting `"),
-                    Err(err) => return Err(err)
+                if let Err(err) = self.read_line(true) {
+                    match err {
+                        LispError::EndOfInput => return self.read_error_eof("quasiquoting `"),
+                        _ => return Err(err)
+                    }
                 }
                 return Ok(Quasiquote);
             }
             ',' => {
-                match self.read_line(true) {
-                    Ok(line) => self.line = line.to_owned(),
-                    Err(LispError::EndOfInput) => return self.read_error_eof("unquoting ,"),
-                    Err(err) => return Err(err)
+                if let Err(err) = self.read_line(true) {
+                    match err {
+                        LispError::EndOfInput => return self.read_error_eof("unquoting ,"),
+                        _ => return Err(err)
+                    }
                 }
                 return Ok(Unquote);
             }

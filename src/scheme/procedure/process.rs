@@ -5,10 +5,10 @@ use scheme::types::LispResult;
 
 use std::process::exit;
 
-pub fn quit(_context: &mut Context, args: Vec<Sexp>) -> LispResult<Sexp> {
+pub fn quit(_context: &mut Context, args: &[Sexp]) -> LispResult<Sexp> {
     for arg in args {
         match arg {
-            Number(n) => exit(n as i32),
+            Number(n) => exit(n.clone() as i32),
             _ => exit(0),
         }
     }

@@ -4,7 +4,7 @@ use scheme::types::LispResult;
 use scheme::types::Sexp;
 use scheme::types::Sexp::*;
 
-pub fn car(_context: &mut Context, args: Vec<Sexp>) -> LispResult<Sexp> {
+pub fn car(_context: &mut Context, args: &[Sexp]) -> LispResult<Sexp> {
     let arity = args.len();
     if arity != 1 {
         return Err(ArityMismatch("car".to_owned(), 1, arity));
@@ -16,7 +16,7 @@ pub fn car(_context: &mut Context, args: Vec<Sexp>) -> LispResult<Sexp> {
     }
 }
 
-pub fn cdr(_context: &mut Context, args: Vec<Sexp>) -> LispResult<Sexp> {
+pub fn cdr(_context: &mut Context, args: &[Sexp]) -> LispResult<Sexp> {
     let arity = args.len();
     if arity != 1 {
         return Err(ArityMismatch("cdr".to_owned(), 1, arity));
@@ -29,7 +29,7 @@ pub fn cdr(_context: &mut Context, args: Vec<Sexp>) -> LispResult<Sexp> {
     }
 }
 
-pub fn cons(_context: &mut Context, args: Vec<Sexp>) -> LispResult<Sexp> {
+pub fn cons(_context: &mut Context, args: &[Sexp]) -> LispResult<Sexp> {
     let arity = args.len();
     if arity != 2 {
         return Err(ArityMismatch("cons".to_owned(), 2, arity));

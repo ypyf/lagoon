@@ -34,17 +34,23 @@ impl Context {
 
     pub fn lookup(&self, name: &str) -> Option<Rc<RefCell<Sexp>>> {
         if let Some(val) = self.env.borrow().get(name) {
-            Some(val.clone())
-        } else if let Some(ctx) = &self.up {
-            ctx.lookup(name)
-        } else {
-            None
+            return Some(val.clone());
         }
+
+        let mut current = &self.up;
+        while let Some(ctx) = current {
+            if let Some(val) = ctx.env.borrow().get(name) {
+                return Some(val.clone());
+            }
+            current = &ctx.up;
+        }
+
+        None
     }
 
-    pub fn bind(&mut self, name: &str, val: &Sexp) {
-        let var = Rc::new(RefCell::new(val.clone()));
-        self.env.borrow_mut().insert(name.to_owned(), var);
+    pub fn bind(&mut self, name: &str, expr: &Sexp) {
+        let val = Rc::new(RefCell::new(expr.clone()));
+        self.env.borrow_mut().insert(name.to_owned(), val);
     }
 
     pub fn assign(&mut self, name: &str, val: &Sexp) -> bool {
@@ -87,7 +93,7 @@ impl Context {
         use self::LispError::*;
 
         match expr {
-            Symbol(name) => match self.lookup(name.as_str()) {
+            Symbol(name) => match self.lookup(&name) {
                 // 顶层求值syntax是语法错误
                 Some(val) => if self.is_toplevel() {
                     match val.borrow().clone() {
@@ -101,12 +107,12 @@ impl Context {
             },
             Nil => return Err(ApplyError("missing procedure expression".to_owned())),
             List(xs) => {
-                let proc = self.eval(xs.first().unwrap())?;
+                let proc = self.eval(&xs[0])?;
                 let ret = match proc {
                     Syntax { keyword, transformer } => self.apply_transformer(&keyword, transformer, expr.clone()),
                     _ => {
-                        let args = expr.tail().unwrap().to_vec();
-                        self.apply(proc, args)
+                        let args = expr.tail().unwrap();
+                        self.apply(&proc, args)
                     }
                 };
                 ret
@@ -212,83 +218,81 @@ impl Context {
         }
     }
 
-    fn apply(&mut self, proc: Sexp, exprs: Vec<Sexp>) -> LispResult<Sexp> {
+    fn apply(&mut self, proc: &Sexp, exprs: &[Sexp]) -> LispResult<Sexp> {
         use self::Sexp::*;
         use self::LispError::*;
 
-        let mut args = exprs;
+        let (last, init) = exprs.split_last().unwrap();
         match proc {
             Function { name: _, special, func } => {
-                if special {
-                    if *args.last().unwrap() == Nil {
-                        args.pop();
-                    }
+                if *special {
+                    let args = if *last == Nil {
+                       init
+                    } else {
+                        exprs
+                    };
                     func(self, args)
                 } else {
-                    if *args.last().unwrap() != Nil {
+                    if *last != Nil {
                         return self.syntax_error("apply");
                     }
-                    args.pop();
-                    let mut vals = Vec::with_capacity(args.len());
-                    for arg in args {
+                    let mut vals = Vec::with_capacity(init.len());
+                    for arg in init {
                         let val = self.eval(&arg)?;
                         vals.push(val);
                     }
-                    func(self, vals)
+                    func(self, &vals)
                 }
             }
             Closure { name, params, vararg, body, env } => {
-                if *args.last().unwrap() != Nil {
+                if *last != Nil {
                     return self.syntax_error("apply");
                 }
-                args.pop();
 
                 let func_name = if name.is_empty() {
-                    "#<procedure>".to_string()
+                    "#<procedure>"
                 } else {
                     name
                 };
 
                 let nparams = params.len();
-                let nargs = args.len();
+                let nargs = init.len();
                 if nargs < nparams && vararg.is_some() {
                     // FIXME expected least nparams...
-                    return Err(ArityMismatch(func_name, nparams, nargs));
+                    return Err(ArityMismatch(func_name.to_string(), nparams, nargs));
                 } else if nargs != nparams && vararg.is_none() {
-                    return Err(ArityMismatch(func_name, nparams, nargs));
+                    return Err(ArityMismatch(func_name.to_string(), nparams, nargs));
                 }
 
-                let mut vals = Vec::with_capacity(args.len());
-                for arg in &args {
-                    let val = self.eval(arg)?;
-                    vals.push(val);
+                let mut vals = Vec::with_capacity(init.len());
+                for arg in init {
+                    vals.push(self.eval(&arg)?);
                 }
 
-                let mut ctx = Context::new(Some(Rc::new(env)));
+                let mut ctx = Context::new(Some(Rc::new(env.clone())));
                 match vararg {
                     Some(ref name) => {
-                        for (k, v) in params.iter().zip(vals.iter()) {
+                        let (pos, rest) = vals.split_at(nparams);
+                        for (k, v) in params.iter().zip(pos) {
                             ctx.bind(k, v);
                         }
-                        let ref val = if nargs == nparams {
+                        let varg = if nargs == nparams {
                             Nil
                         } else {
-                            let mut xs = vals[nparams..].to_vec();
+                            let mut xs = rest.to_vec();
                             xs.push(Nil);
                             List(xs)
                         };
-                        ctx.bind(name, val);
+                        ctx.bind(name, &varg);
                     }
-                    _ => {
-                        for (k, v) in params.iter().zip(vals.iter()) {
-                            ctx.bind(k, v);
-                        }
+                    _ => for (k, v) in params.iter().zip(&vals) {
+                        ctx.bind(k, v);
                     }
                 }
                 // FIXME tail call optimization
                 let (last, init) = body.split_last().unwrap();
                 for expr in init {
-                    ctx.eval(&expr).unwrap();
+                    ctx.eval(&expr)?;
                 }
                 ctx.eval(last)
             }
@@ -297,7 +301,7 @@ impl Context {
     }
 }
 
-pub type Function = fn(&mut Context, Vec<Sexp>) -> LispResult<Sexp>;
+pub type Function = fn(&mut Context, &[Sexp]) -> LispResult<Sexp>;
 
 #[derive(Debug, Clone)]
 pub struct SyntaxRule {

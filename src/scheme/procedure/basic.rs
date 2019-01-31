@@ -9,7 +9,7 @@ use scheme::types::{UNDERSCORE, ELLIPSIS};
 
 use std::collections::{HashSet, VecDeque};
 
-pub fn quote(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
+pub fn quote(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
     let arity = exprs.len();
     if arity != 1 {
         return ctx.syntax_error("quote");
@@ -19,7 +19,7 @@ pub fn quote(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
 
 // FIXME (define a (define a 1)) => define: not allowed in an expression context
 // definition in expression context, where definitions are not allowed, in from (define a 1)
-pub fn define(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
+pub fn define(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
     let arity = exprs.len();
     if arity == 0 {
         return ctx.syntax_error("define");
@@ -70,7 +70,7 @@ pub fn define(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
     Ok(Void)
 }
 
-pub fn assign(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
+pub fn assign(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
     let arity = exprs.len();
     if arity != 2 {
         return Err(BadSyntax("set!".to_owned(), Some(format!("has {} parts after keyword", arity))));
@@ -90,7 +90,7 @@ pub fn assign(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
 }
 
 // FIXME body不能为空
-pub fn lambda(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
+pub fn lambda(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
     let arity = exprs.len();
     if arity == 0 {
         return ctx.syntax_error("lambda");
@@ -98,42 +98,45 @@ pub fn lambda(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
         return Err(BadSyntax("body".to_owned(), Some("no expression in body".to_owned())));
     }
 
-    match &exprs[0] {
+    let (formals, body) = exprs.split_first().unwrap();
+    match formals {
         Nil => Ok(Closure {
             name: String::new(),
             params: vec![],
             vararg: None,
-            body: exprs[1..].to_vec(),
+            body: body.to_vec(),
             env: ctx.clone(),
         }),
         List(xs) => {
             let (last, init) = xs.split_last().unwrap();
             let vararg = match last {
                 Nil => None,
-                Symbol(sym) => Some(sym.clone()),
+                Symbol(ident) => Some(ident.clone()),
                 _ => return Err(BadSyntax("lambda".to_owned(), Some("not an identifier".to_owned()))),
             };
+
             let mut params = vec![];
             for expr in init {
                 match expr {
-                    Symbol(sym) => params.push(sym.clone()),
+                    Symbol(ident) => params.push(ident.clone()),
                     _ => return Err(BadSyntax("lambda".to_owned(), Some("not an identifier".to_owned()))),
                 }
             }
+
             Ok(Closure {
                 name: String::new(),
                 params,
                 vararg,
-                body: exprs[1..].to_vec(),
+                body: body.to_vec(),
                 env: ctx.clone(),
             })
         }
-        Symbol(sym) => {
+        Symbol(ident) => {
             Ok(Closure {
                 name: String::new(),
                 params: vec![],
-                vararg: Some(sym.clone()),
-                body: exprs[1..].to_vec(),
+                vararg: Some(ident.clone()),
+                body: body.to_vec(),
                 env: ctx.clone(),
             })
         }
@@ -141,7 +144,7 @@ pub fn lambda(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
     }
 }
 
-pub fn if_exp(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
+pub fn if_exp(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
     let arity = exprs.len();
     if arity < 2 || arity > 3 {
         return ctx.syntax_error("if");
@@ -167,7 +170,7 @@ pub fn if_exp(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
     }
 }
 
-pub fn define_syntax(ctx: &mut Context, exprs: Vec<Sexp>) -> LispResult<Sexp> {
+pub fn define_syntax(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
     let arity = exprs.len();
     if arity != 2 {
         return ctx.syntax_error("define-syntax");
