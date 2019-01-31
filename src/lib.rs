@@ -25,6 +25,7 @@ mod tests {
         let mut interp = Interpreter::new();
         assert_eq!(Ok(Nil), interp.eval_string("'()"));
         assert_eq!(Ok(Number(2)), interp.eval_string("'(. 2)"));
+        assert_eq!(interp.eval_string("'(a b c . d)"), interp.eval_string("(cons 'a (cons 'b (cons 'c 'd)))"));
         assert_eq!(Ok(Number(3)), interp.eval_string("(car (cdr (car (cdr '(1 (2 3) 4 5)))))"));
         assert_eq!(interp.eval_string("'(1 2 3 quote (4 5 . 6))"), interp.eval_string("(cons 1 '(2 . (3 . '(4 5 . 6))))"));
     }

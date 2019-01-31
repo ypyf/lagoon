@@ -55,7 +55,7 @@ pub struct Reader<'a> {
     re_char: Regex,
     re_symbol: Regex,
     // 嵌套深度
-    scope: isize,
+    nest_level: isize,
     // 偷看
     lookahead: Option<Token>,
     // 字符串内部
@@ -86,8 +86,8 @@ impl<'a> Reader<'a> {
             re_string: Regex::new(r#"^"((\\.|[^"])*)""#).unwrap(),
             re_char: Regex::new(r"^#\\(\S[^()\[\]\s]*|\s)").unwrap(),
             re_number: Regex::new(r"^[-+]?\d+").unwrap(),
-            re_symbol: Regex::new(r"^[^#;'`,\s()][^#;'`,\s()]*").unwrap(),
-            scope: 0,
+            re_symbol: Regex::new(r"^[^#;'`,\s()\[\]{}]+").unwrap(),
+            nest_level: 0,
             lookahead: None,
             string: false,
             line: String::new(),
@@ -110,7 +110,7 @@ impl<'a> Reader<'a> {
     pub fn read(&mut self) -> LispResult<Sexp> {
         use self::Sexp::*;
 
-        self.scope = 0;
+        self.nest_level = 0;
         self.string = false;
 
         let mut list_level = 0;
@@ -244,7 +244,7 @@ impl<'a> Reader<'a> {
             let ret = if let Some(ref mut input) = self.input {
                 input.read_line(&mut line)
             } else {
-                let prompt = if self.scope == 0 && !continue_read && !self.string {
+                let prompt = if self.nest_level == 0 && !continue_read && !self.string {
                     &self.ps1
                 } else {
                     &self.ps2
@@ -358,20 +358,20 @@ impl<'a> Reader<'a> {
         let first = self.line.remove(0);
         match first {
             '(' => {
-                self.scope += 1;
+                self.nest_level += 1;
                 return Ok(Rune(first));
             }
             ')' => {
-                self.scope -= 1;
+                self.nest_level -= 1;
                 return Ok(Rune(first));
             }
             '[' => {
-                self.scope += 1;
-                return Ok(Rune(first));
+                self.nest_level += 1;
+                return Ok(Rune('('));
             }
             ']' => {
-                self.scope -= 1;
-                return Ok(Rune(first));
+                self.nest_level -= 1;
+                return Ok(Rune(')'));
             }
             '\'' => {
                 match self.read_line(true) {
@@ -432,13 +432,13 @@ impl<'a> Reader<'a> {
     }
 
     fn read_error<T>(&mut self, err: &str) -> Result<T, LispError> {
-        self.scope = 0;
+        self.nest_level = 0;
         self.string = false;
         Err(LispError::ReadError(err.to_owned()))
     }
 
     fn read_error_eof<T>(&mut self, expected: &str) -> Result<T, LispError> {
-        self.scope = 0;
+        self.nest_level = 0;
         self.string = false;
         Err(LispError::ReadError(format!("expected {} (found end of file)", expected.to_owned())))
     }
