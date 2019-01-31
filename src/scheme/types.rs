@@ -28,7 +28,7 @@ impl Context {
         }
     }
 
-    pub fn is_toplevel(&self) -> bool {
+    pub fn is_global(&self) -> bool {
         self.up.is_none()
     }
 
@@ -37,12 +37,12 @@ impl Context {
             return Some(val.clone());
         }
 
-        let mut current = &self.up;
+        let mut current = self.up.clone();
         while let Some(ctx) = current {
             if let Some(val) = ctx.env.borrow().get(name) {
                 return Some(val.clone());
             }
-            current = &ctx.up;
+            current = ctx.up.clone();
         }
         None
     }
@@ -69,20 +69,12 @@ impl Context {
     }
 
     pub fn def_synatx(&mut self, name: &str, func: HostFunction) {
-        let form = Sexp::Function {
-            name: name.to_owned(),
-            special: true,
-            func,
-        };
+        let form = Sexp::Prim { keyword: name.to_owned(), func };
         self.insert(name, &form);
     }
 
     pub fn def_proc(&mut self, name: &str, func: HostFunction) {
-        let proc = Sexp::Function {
-            name: name.to_owned(),
-            special: false,
-            func,
-        };
+        let proc = Sexp::Function { name: name.to_owned(), func };
         self.insert(name, &proc);
     }
 
@@ -94,26 +86,34 @@ impl Context {
         Err(LispError::BadSyntax(form.to_string(), Some(reason.to_string())))
     }
 
+    pub fn eval_top_level_form(&mut self, expr: &Sexp) -> LispResult<Sexp> {
+        use self::Sexp::*;
+        use self::LispError::*;
+        match expr {
+            Symbol(name) => match self.lookup(&name) {
+                Some(val) => {
+                    let val = val.borrow().clone();
+                    match &val {
+                        Prim { keyword, .. } => self.syntax_error(&keyword),
+                        Syntax { keyword, .. } => self.syntax_error(&keyword),
+                        _ => Ok(val)
+                    }
+                }
+                None => Err(Undefined(name.to_string())),
+            }
+            _ => self.eval(expr),
+        }
+    }
+
     pub fn eval(&mut self, expr: &Sexp) -> LispResult<Sexp> {
         use self::Sexp::*;
         use self::LispError::*;
 
         match expr {
             Symbol(name) => match self.lookup(&name) {
-                // 顶层求值syntax是语法错误
-                Some(val) => {
-                    let val = val.borrow().clone();
-                    match &val {
-                        Syntax { keyword, .. } => if self.is_toplevel() {
-                            self.syntax_error(&keyword)
-                        } else {
-                            Ok(val)
-                        }
-                        _ => Ok(val)
-                    }
-                }
+                Some(val) => Ok(val.borrow().clone()),
                 None => Err(Undefined(name.to_string())),
-            },
+            }
             Nil => return Err(ApplyError("missing procedure expression".to_owned())),
             List(xs) => {
                 let (head, tail) = xs.split_first().unwrap();
@@ -230,21 +230,20 @@ impl Context {
 
         let (last, init) = exprs.split_last().unwrap();
         match proc {
-            Function { name: _, special, func } => {
-                if *special {
-                    let args = if *last == Nil {
-                        init
-                    } else {
-                        exprs
-                    };
-                    func(self, args)
+            Prim { keyword: _, func } => {
+                let args = if *last == Nil {
+                    init
                 } else {
-                    if *last != Nil {
-                        return self.syntax_error("apply");
-                    }
-                    let vals: Vec<Sexp> = init.iter().map(|e| self.eval(e).unwrap()).collect();
-                    func(self, &vals)
+                    exprs
+                };
+                func(self, args)
+            }
+            Function { name: _, func } => {
+                if *last != Nil {
+                    return self.syntax_error("apply");
                 }
+                let vals: Vec<Sexp> = init.iter().map(|e| self.eval(e).unwrap()).collect();
+                func(self, &vals)
             }
             Closure { name, params, vararg, body, env } => {
                 if *last != Nil {
@@ -326,9 +325,12 @@ pub enum Sexp {
     Number(i64),
     Symbol(String),
     List(Vec<Sexp>),
+    Prim {
+        keyword: String,
+        func: HostFunction,
+    },
     Function {
         name: String,
-        special: bool,
         func: HostFunction,
     },
     // Vector(Vec<&'a Sexp<'a>>),
@@ -533,14 +535,22 @@ impl<'a> PartialEq for Sexp {
             (Str(s1, _), Str(s2, _)) => s1 == s2,
             (List(xs1), List(xs2)) => xs1 == xs2,
             (
+                Prim {
+                    keyword: n1,
+                    func: _,
+                },
+                Prim {
+                    keyword: n2,
+                    func: _,
+                },
+            ) => n1 == n2, // FIXME
+            (
                 Function {
                     name: n1,
-                    special: _,
                     func: _,
                 },
                 Function {
                     name: n2,
-                    special: _,
                     func: _,
                 },
             ) => n1 == n2, // FIXME
@@ -563,6 +573,7 @@ impl<'a> fmt::Display for Sexp {
             Symbol(n) => write!(f, "{}", n),
             Char(n) => write!(f, "#\\{}", char_to_name(*n)),
             Str(n, _) => write!(f, "{:?}", n.borrow()), // 字符串输出时显示双引号
+            Prim { keyword, .. } => write!(f, "#<prim {}>", keyword),
             Function { name, .. } => write!(f, "#<procedure {}>", name),
             Closure { name, .. } => if name.is_empty() {
                 write!(f, "#<procedure>")

@@ -78,8 +78,8 @@ impl Interpreter {
         let mut res = Ok(Sexp::Void);
         for item in reader {
             match item {
-                Ok(expr) => {
-                    res = self.ctx.eval(&expr);
+                Ok(datum) => {
+                    res = self.ctx.eval_top_level_form(&datum);
                     if res.is_err() {
                         return res;
                     }
@@ -92,10 +92,10 @@ impl Interpreter {
 
     pub fn run_repl(&mut self) {
         let mut res_no = 0;
-        for expr in Reader::new() {
-            match expr {
-                Ok(ref sexp) => {
-                    match self.ctx.eval(sexp) {
+        for item in Reader::new() {
+            match item {
+                Ok(datum) => {
+                    match self.ctx.eval_top_level_form(&datum) {
                         Ok(ref val) => match val {
                             Sexp::Void => (),
                             _ => {
