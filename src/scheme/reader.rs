@@ -29,7 +29,6 @@ enum Token {
 }
 
 pub struct Reader<'a> {
-    re_number: Regex,
     re_string: Regex,
     re_char: Regex,
     re_symbol: Regex,
@@ -68,8 +67,7 @@ impl<'a> Reader<'a> {
         Reader {
             re_string: Regex::new(r#"^"((\\.|[^"])*)""#).unwrap(),
             re_char: Regex::new(r"^#\\(\S[^()\[\]{}\s]*|\s)").unwrap(),
-            re_number: Regex::new(r"^[-+]?\d+").unwrap(),
-            re_symbol: Regex::new(r"^[^#;'`,\s()\[\]{}]+").unwrap(),
+            re_symbol: Regex::new(r#"^[^#;"'`,\s()\[\]{}]+"#).unwrap(),
             re_sharp: Regex::new(r"^#(\S[^()\[\]{}\s]*|\s)?").unwrap(),
             tip: 0,
             line_buffer: String::new(),
@@ -313,9 +311,25 @@ impl<'a> Reader<'a> {
             }
         }
 
-        for cap in self.re_number.captures_iter(&self.line_buffer[self.tip..]) {
-            self.tip += cap[0].len();
-            return Ok(Number(cap[0].to_owned()));
+        // 解析数字常量
+        let mut chars = self.line_buffer[self.tip..].chars();
+        let first = chars.next().unwrap();
+        if first.is_ascii_digit() || "+-".contains(first) {
+            let mut buffer = String::new();
+            buffer.push(first);
+            for c in chars {
+                if c.is_ascii_digit() {
+                    buffer.push(c);
+                } else if Reader::is_delimiter(c) {
+                    if buffer == "+" || buffer == "-" {
+                        break
+                    }
+                    self.tip += buffer.len();
+                    return Ok(Number(buffer));
+                } else {
+                    break
+                }
+            }
         }
 
         for cap in self.re_symbol.captures_iter(&self.line_buffer[self.tip..]) {
@@ -412,12 +426,12 @@ impl<'a> Reader<'a> {
                 // sharp-sign
                 let caps = self.re_sharp.captures(&self.line_buffer[self.tip..]).unwrap();
                 self.tip += caps[0].len();
-                return Ok(Sharp(caps[0].to_lowercase()));
+                return Ok(Sharp(caps[1].to_lowercase()));
             }
             _ => {
                 self.tip += first.to_string().len();
-                return self.read_error(&format!("unexpected character '{}'", first))
-            },
+                return self.read_error(&format!("unexpected character '{}'", first));
+            }
         }
     }
 
@@ -433,16 +447,14 @@ impl<'a> Reader<'a> {
     fn parse_sharp_sign(&mut self, lex: &str) -> LispResult<Sexp> {
         use self::Sexp::*;
         match lex {
-            "#t" => Ok(True),
-            "#f" => Ok(False),
-            // "#i" => Ok(Symbol(lex.to_owned())), // TODO 非精确数前缀
-            // "#e" => Ok(Symbol(lex.to_owned())), // TODO 精确数前缀
-            // "#d" => Ok(Symbol(lex.to_owned())), // TODO 10进制数码前缀
-            // "#x" => Ok(Symbol(lex.to_owned())), // TODO 16进制数码前缀
-            // "#o" => Ok(Symbol(lex.to_owned())), // TODO 8进制数码前缀
-            // "#b" => Ok(Symbol(lex.to_owned())), // TODO 2进制数码前缀
+            "t" => Ok(True),
+            "f" => Ok(False),
             _ => self.read_error(&format!("invalid sharp-sign prefix: {:?}", lex)),
         }
+    }
+
+    fn is_delimiter(c:char) -> bool {
+        c.is_whitespace() || "()[]{}\";".contains(c)
     }
 
     fn read_error<T>(&mut self, err: &str) -> LispResult<T> {
