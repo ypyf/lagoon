@@ -242,8 +242,11 @@ impl Context {
                 if *last != Nil {
                     return self.syntax_error("apply");
                 }
-                let vals: Vec<Sexp> = init.iter().map(|e| self.eval(e).unwrap()).collect();
-                func(self, &vals)
+                let args: Result<Vec<_>, _> = init.iter().map(|e| self.eval(e)).collect();
+                if args.is_err() {
+                    return Err(args.unwrap_err())
+                }
+                func(self, &args.unwrap())
             }
             Closure { name, params, vararg, body, env } => {
                 if *last != Nil {
@@ -259,9 +262,13 @@ impl Context {
                 let nparams = params.len();
                 let nargs = init.len();
 
-                let args: Vec<Sexp> = init.iter().map(|e| self.eval(e).unwrap()).collect();
-
                 let mut ctx = Context::new(Some(Rc::new(env.clone())));
+
+                let args: Result<Vec<_>, _> = init.iter().map(|e| self.eval(e)).collect();
+                if args.is_err() {
+                    return Err(args.unwrap_err())
+                }
+                let args = args.unwrap();
 
                 match vararg {
                     Some(ref name) => {

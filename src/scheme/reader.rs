@@ -54,6 +54,7 @@ pub struct Reader<'a> {
     re_string: Regex,
     re_char: Regex,
     re_symbol: Regex,
+    last_delimiter: char,
     // 嵌套深度
     nest_level: isize,
     // 偷看
@@ -87,6 +88,7 @@ impl<'a> Reader<'a> {
             re_char: Regex::new(r"^#\\(\S[^()\[\]\s]*|\s)").unwrap(),
             re_number: Regex::new(r"^[-+]?\d+").unwrap(),
             re_symbol: Regex::new(r"^[^#;'`,\s()\[\]{}]+").unwrap(),
+            last_delimiter: '\u{0}',
             nest_level: 0,
             lookahead: None,
             string: false,
@@ -110,6 +112,7 @@ impl<'a> Reader<'a> {
     pub fn read(&mut self) -> LispResult<Sexp> {
         use self::Sexp::*;
 
+        self.last_delimiter = '\u{0}';
         self.nest_level = 0;
         self.string = false;
 
@@ -124,10 +127,8 @@ impl<'a> Reader<'a> {
         loop {
             let token = self.next_token()?;
             match token {
-                Token::EndOfFile => if list_level < 0 {
-                    return self.read_error("unexpected `)'");
-                } else if list_level > 0 {
-                    return self.read_error("expected a `)' to close `('");
+                Token::EndOfFile => if list_level > 0 {
+                    return self.read_error_eof("list");
                 } else {
                     return Err(LispError::EndOfInput);
                 }
@@ -147,9 +148,6 @@ impl<'a> Reader<'a> {
                     list_level += 1;
                 }
                 Token::Rune(')') => {
-                    if list_level == 0 {
-                        return self.read_error(format!("unexpected `{}'", token).as_str());
-                    }
                     list_level -= 1;
 
                     if let Some(m) = macro_stack.pop() {
@@ -220,12 +218,12 @@ impl<'a> Reader<'a> {
 
     fn read_atom(&mut self, token: Token) -> LispResult<Sexp> {
         match token {
-            Token::Number(lex) => self.parse_number(lex.as_str()),
+            Token::Number(lex) => self.parse_number(&lex),
             Token::Str(lex) => Ok(Sexp::Str(Rc::new(RefCell::new(lex)), false)),
             Token::Char(lex) => Ok(Sexp::Char(lex)),
             Token::Symbol(lex) => Ok(Sexp::Symbol(lex)),
-            Token::Pound(lex) => self.parse_pound(lex.as_str()),
-            _ => self.read_error(format!("unexpected `{}'", token).as_str()),
+            Token::Pound(lex) => self.parse_pound(&lex),
+            _ => self.read_error(&format!("unexpected `{}'", token)),
         }
     }
 
@@ -268,7 +266,7 @@ impl<'a> Reader<'a> {
         Ok(())
     }
 
-    fn lookahead(&mut self) -> Result<Token, LispError> {
+    fn lookahead(&mut self) -> LispResult<Token> {
         if self.lookahead.is_some() {
             let token = self.lookahead.clone();
             Ok(token.unwrap())
@@ -279,7 +277,7 @@ impl<'a> Reader<'a> {
         }
     }
 
-    fn next_token(&mut self) -> Result<Token, LispError> {
+    fn next_token(&mut self) -> LispResult<Token> {
         use self::Token::*;
 
         if self.lookahead.is_some() {
@@ -310,11 +308,11 @@ impl<'a> Reader<'a> {
                 self.line.clear();
                 if let Err(err) = self.read_line(false) {
                     match err {
-                        LispError::EndOfInput => return self.read_error_eof("a closing '\"'"),
+                        LispError::EndOfInput => return self.read_error_eof("string"),
                         _ => return Err(err)
                     }
                 }
-                buffer.push_str(self.line.as_str());
+                buffer.push_str(&self.line);
                 for cap in self.re_string.captures_iter(&buffer) {
                     let rest = &buffer[cap[0].len()..];
                     self.line = rest.to_string();
@@ -329,7 +327,7 @@ impl<'a> Reader<'a> {
             self.line = self.line.replacen(&cap[0], "", 1);
             match name_to_char(&cap[1]) {
                 Some(c) => return Ok(Char(c)),
-                None => return self.read_error(format!("unknown character name: {}", &cap[1]).as_str()),
+                None => return self.read_error(&format!("unknown character name: {}", &cap[1])),
             }
         }
 
@@ -351,7 +349,7 @@ impl<'a> Reader<'a> {
             self.line = self.line.replacen(",@", "", 1);
             if let Err(err) = self.read_line(true) {
                 match err {
-                    LispError::EndOfInput => return self.read_error_eof("unquoting ,@"),
+                    LispError::EndOfInput => return self.read_error_eof("unquote (,@)"),
                     _ => return Err(err)
                 }
             }
@@ -361,25 +359,35 @@ impl<'a> Reader<'a> {
         let first = self.line.remove(0);
         match first {
             '(' => {
+                self.last_delimiter = '(';
                 self.nest_level += 1;
                 return Ok(Rune(first));
             }
             ')' => {
+                if self.nest_level == 0 || self.last_delimiter == '[' {
+                    return self.read_error("unexpected ')'");
+                }
+                self.last_delimiter = ')';
                 self.nest_level -= 1;
                 return Ok(Rune(first));
             }
             '[' => {
+                self.last_delimiter = '[';
                 self.nest_level += 1;
                 return Ok(Rune('('));
             }
             ']' => {
+                if self.nest_level == 0 || self.last_delimiter == '(' {
+                    return self.read_error("unexpected ']'");
+                }
+                self.last_delimiter = ']';
                 self.nest_level -= 1;
                 return Ok(Rune(')'));
             }
             '\'' => {
                 if let Err(err) = self.read_line(true) {
                     match err {
-                        LispError::EndOfInput => return self.read_error_eof("quoting '"),
+                        LispError::EndOfInput => return self.read_error_eof("quote (')"),
                         _ => return Err(err)
                     }
                 }
@@ -388,7 +396,7 @@ impl<'a> Reader<'a> {
             '`' => {
                 if let Err(err) = self.read_line(true) {
                     match err {
-                        LispError::EndOfInput => return self.read_error_eof("quasiquoting `"),
+                        LispError::EndOfInput => return self.read_error_eof("quasiquote (`)"),
                         _ => return Err(err)
                     }
                 }
@@ -397,7 +405,7 @@ impl<'a> Reader<'a> {
             ',' => {
                 if let Err(err) = self.read_line(true) {
                     match err {
-                        LispError::EndOfInput => return self.read_error_eof("unquoting ,"),
+                        LispError::EndOfInput => return self.read_error_eof("unquote (,)"),
                         _ => return Err(err)
                     }
                 }
@@ -408,7 +416,7 @@ impl<'a> Reader<'a> {
                     self.line.remove(0);
                     return Ok(Pound(next.to_lowercase().to_string()));
                 }
-                return self.read_error(format!("`{}'", first).as_str());
+                return self.read_error(&format!("`{}'", first));
             }
             _ => return Ok(Rune(first)),
         }
@@ -433,19 +441,21 @@ impl<'a> Reader<'a> {
             // "x" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 16进制数码前缀
             // "o" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 8进制数码前缀
             // "b" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 2进制数码前缀
-            _ => self.read_error(format!("bad syntax: `#{}'", lex).as_str()),
+            _ => self.read_error(&format!("bad syntax: `#{}'", lex)),
         }
     }
 
-    fn read_error<T>(&mut self, err: &str) -> Result<T, LispError> {
+    fn read_error<T>(&mut self, err: &str) -> LispResult<T> {
+        self.last_delimiter = '\u{0}';
         self.nest_level = 0;
         self.string = false;
         Err(LispError::ReadError(err.to_owned()))
     }
 
-    fn read_error_eof<T>(&mut self, expected: &str) -> Result<T, LispError> {
+    fn read_error_eof<T>(&mut self, token: &str) -> LispResult<T> {
+        self.last_delimiter = '\u{0}';
         self.nest_level = 0;
         self.string = false;
-        Err(LispError::ReadError(format!("expected {} (found end of file)", expected.to_owned())))
+        Err(LispError::ReadError(format!("unexpected end-of-file reading {}", token)))
     }
 }
