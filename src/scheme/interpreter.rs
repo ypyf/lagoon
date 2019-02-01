@@ -3,7 +3,7 @@ use scheme::procedure::numeric;
 use scheme::procedure::numeric::Operator::*;
 use scheme::procedure::string;
 use scheme::procedure::predicate;
-use scheme::procedure::process;
+use scheme::procedure::system;
 use scheme::procedure::list;
 use scheme::procedure::character;
 use scheme::reader::Reader;
@@ -64,13 +64,17 @@ impl Interpreter {
         self.ctx.def_proc("char?", predicate::is_char);
         self.ctx.def_proc("symbol?", predicate::is_symbol);
         self.ctx.def_proc("procedure?", predicate::is_procedure);
-        self.ctx.def_proc("quit", process::quit);
+        self.ctx.def_proc("exit", system::exit_process);
         self.ctx.def_synatx("define", basic::define);
         self.ctx.def_synatx("set!", basic::assign);
         self.ctx.def_synatx("quote", basic::quote);
         self.ctx.def_synatx("lambda", basic::lambda);
         self.ctx.def_synatx("if", basic::if_exp);
         self.ctx.def_synatx("define-syntax", basic::define_syntax);
+
+        // 加载库文件
+        // TODO 配置运行时根目录
+        self.run_once("./libs/stdlib.scm");
     }
 
     // 运行解释器

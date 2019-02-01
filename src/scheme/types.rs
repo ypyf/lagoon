@@ -69,7 +69,7 @@ impl Context {
     }
 
     pub fn def_synatx(&mut self, name: &str, func: HostFunction) {
-        let form = Sexp::Prim { keyword: name.to_owned(), func };
+        let form = Sexp::Keyword { name: name.to_owned(), func };
         self.insert(name, &form);
     }
 
@@ -94,7 +94,7 @@ impl Context {
                 Some(val) => {
                     let val = val.borrow().clone();
                     match &val {
-                        Prim { keyword, .. } => self.syntax_error(&keyword),
+                        Keyword { name, .. } => self.syntax_error(&name),
                         Syntax { keyword, .. } => self.syntax_error(&keyword),
                         _ => Ok(val)
                     }
@@ -230,7 +230,7 @@ impl Context {
 
         let (last, init) = exprs.split_last().unwrap();
         match proc {
-            Prim { keyword: _, func } => {
+            Keyword { name: _, func } => {
                 let args = if *last == Nil {
                     init
                 } else {
@@ -244,7 +244,7 @@ impl Context {
                 }
                 let args: Result<Vec<_>, _> = init.iter().map(|e| self.eval(e)).collect();
                 if args.is_err() {
-                    return Err(args.unwrap_err())
+                    return Err(args.unwrap_err());
                 }
                 func(self, &args.unwrap())
             }
@@ -266,7 +266,7 @@ impl Context {
 
                 let args: Result<Vec<_>, _> = init.iter().map(|e| self.eval(e)).collect();
                 if args.is_err() {
-                    return Err(args.unwrap_err())
+                    return Err(args.unwrap_err());
                 }
                 let args = args.unwrap();
 
@@ -332,8 +332,8 @@ pub enum Sexp {
     Number(i64),
     Symbol(String),
     List(Vec<Sexp>),
-    Prim {
-        keyword: String,
+    Keyword {
+        name: String,
         func: HostFunction,
     },
     Function {
@@ -418,6 +418,15 @@ impl Sexp {
                 *xs.last().unwrap() == Nil
             }
             _ => false,
+        }
+    }
+
+    pub fn is_string(&self) -> bool {
+        use self::Sexp::*;
+        if let Str(_, _) = self {
+            true
+        } else {
+            false
         }
     }
 
@@ -542,15 +551,15 @@ impl<'a> PartialEq for Sexp {
             (Str(s1, _), Str(s2, _)) => s1 == s2,
             (List(xs1), List(xs2)) => xs1 == xs2,
             (
-                Prim {
-                    keyword: n1,
+                Keyword {
+                    name: n1,
                     func: _,
                 },
-                Prim {
-                    keyword: n2,
+                Keyword {
+                    name: n2,
                     func: _,
                 },
-            ) => n1 == n2, // FIXME
+            ) => n1 == n2,
             (
                 Function {
                     name: n1,
@@ -580,7 +589,7 @@ impl<'a> fmt::Display for Sexp {
             Symbol(n) => write!(f, "{}", n),
             Char(n) => write!(f, "#\\{}", char_to_name(*n)),
             Str(n, _) => write!(f, "{:?}", n.borrow()), // 字符串输出时显示双引号
-            Prim { keyword, .. } => write!(f, "#<prim {}>", keyword),
+            Keyword { name, .. } => write!(f, "#<keyword {}>", name),
             Function { name, .. } => write!(f, "#<procedure {}>", name),
             Closure { name, .. } => if name.is_empty() {
                 write!(f, "#<procedure>")
