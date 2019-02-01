@@ -116,7 +116,7 @@ impl Interpreter {
         }
     }
 
-    pub fn run_once(&mut self, path: &str) -> LispResult<Sexp> {
+    pub fn run_once(&mut self, path: &str) {
         let file = match File::open(path) {
             Ok(file) => file,
             Err(err) => {
@@ -127,7 +127,10 @@ impl Interpreter {
         let mut reader = Reader::new();
         let mut input = BufReader::new(file);
         reader.set_input(&mut input);
-        self.run(reader)
+        match self.run(reader) {
+            Err(err) => eprintln!("{}", err),
+            _ => return,
+        }
     }
 
     pub fn eval_string(&mut self, string: &str) -> LispResult<Sexp> {

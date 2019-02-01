@@ -6,7 +6,6 @@ use scheme::types::Sexp;
 use scheme::types::name_to_char;
 
 use std::error::Error;
-use std::fmt;
 use std::io::{self, Stdin, BufRead, Write};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -24,29 +23,9 @@ enum Token {
     Number(String),
     Str(String),
     Symbol(String),
-    Pound(String),
+    Sharp(String),
     Char(char),
     Rune(char),
-}
-
-impl fmt::Display for Token {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::Token::*;
-
-        match self {
-            EndOfFile => write!(f, "#<eof>"),
-            Quote => write!(f, "'"),
-            Quasiquote => write!(f, "`"),
-            Unquote => write!(f, ","),
-            UnquoteSplicing => write!(f, ",@"),
-            Number(s) => write!(f, "{}", s),
-            Str(s) => write!(f, "{:?}", s),
-            Symbol(s) => write!(f, "{}", s),
-            Char(s) => write!(f, r#"#\{}"#, s),
-            Pound(s) => write!(f, "#{}", s),
-            Rune(s) => write!(f, "{}", s),
-        }
-    }
 }
 
 pub struct Reader<'a> {
@@ -54,6 +33,11 @@ pub struct Reader<'a> {
     re_string: Regex,
     re_char: Regex,
     re_symbol: Regex,
+    re_sharp: Regex,
+    // 缓冲区指针
+    tip: usize,
+    // 当前行
+    line_buffer: String,
     last_delimiter: char,
     // 嵌套深度
     nest_level: isize,
@@ -61,8 +45,6 @@ pub struct Reader<'a> {
     lookahead: Option<Token>,
     // 字符串内部
     string: bool,
-    // 当前行
-    line: String,
     stdin: Stdin,
     input: Option<&'a mut BufRead>,
     ps1: &'a str,
@@ -85,14 +67,16 @@ impl<'a> Reader<'a> {
     pub fn new() -> Self {
         Reader {
             re_string: Regex::new(r#"^"((\\.|[^"])*)""#).unwrap(),
-            re_char: Regex::new(r"^#\\(\S[^()\[\]\s]*|\s)").unwrap(),
+            re_char: Regex::new(r"^#\\(\S[^()\[\]{}\s]*|\s)").unwrap(),
             re_number: Regex::new(r"^[-+]?\d+").unwrap(),
             re_symbol: Regex::new(r"^[^#;'`,\s()\[\]{}]+").unwrap(),
+            re_sharp: Regex::new(r"^#(\S[^()\[\]{}\s]*|\s)?").unwrap(),
+            tip: 0,
+            line_buffer: String::new(),
             last_delimiter: '\u{0}',
             nest_level: 0,
             lookahead: None,
             string: false,
-            line: String::new(),
             stdin: io::stdin(),
             input: None,
             ps1: "scheme> ",
@@ -217,31 +201,40 @@ impl<'a> Reader<'a> {
     }
 
     fn read_atom(&mut self, token: Token) -> LispResult<Sexp> {
+        use self::Sexp::*;
         match token {
             Token::Number(lex) => self.parse_number(&lex),
-            Token::Str(lex) => Ok(Sexp::Str(Rc::new(RefCell::new(lex)), false)),
-            Token::Char(lex) => Ok(Sexp::Char(lex)),
-            Token::Symbol(lex) => Ok(Sexp::Symbol(lex)),
-            Token::Pound(lex) => self.parse_pound(&lex),
-            _ => self.read_error(&format!("unexpected `{}'", token)),
+            Token::Str(lex) => Ok(Str(Rc::new(RefCell::new(lex)), false)),
+            Token::Char(lex) => Ok(Char(lex)),
+            Token::Symbol(lex) => Ok(Symbol(lex)),
+            Token::Sharp(lex) => self.parse_sharp_sign(&lex),
+            _ => self.read_error(&format!("unexpected '{:?}'", token)),
         }
     }
 
     // 忽略空白和注释
     fn skip_whitespace(&mut self) {
-        let x = self.line.trim_start();
-        if x.starts_with(';') {
-            self.line.clear();
-        } else {
-            self.line = x.to_owned()
+        let mut ws = String::new();
+        for c in self.line_buffer[self.tip..].chars() {
+            if c.is_whitespace() {
+                ws.push(c);
+            } else if c == ';' {
+                self.tip = self.line_buffer.len();
+                return;
+            } else {
+                break;
+            }
         }
+        self.tip += ws.len();
     }
 
     fn read_line(&mut self, continue_read: bool) -> LispResult<()> {
         self.skip_whitespace();
-        while self.line.is_empty() {
+        while self.tip >= self.line_buffer.len() {
+            self.line_buffer.clear();
+            self.tip = 0;
             let ret = if let Some(ref mut input) = self.input {
-                input.read_line(&mut self.line)
+                input.read_line(&mut self.line_buffer)
             } else {
                 let prompt = if self.nest_level == 0 && !continue_read && !self.string {
                     &self.ps1
@@ -250,13 +243,14 @@ impl<'a> Reader<'a> {
                 };
                 print!("{}", prompt);
                 io::stdout().flush().unwrap();
-                self.stdin.lock().read_line(&mut self.line)
+                // Note read_line will add a newline to the end anyway
+                self.stdin.lock().read_line(&mut self.line_buffer)
             };
 
             if let Err(err) = ret {
                 return Err(LispError::ReadError(err.to_string()));
             }
-            if self.line.is_empty() {
+            if self.line_buffer.is_empty() {
                 return Err(LispError::EndOfInput);
             }
             if !self.string {
@@ -293,51 +287,39 @@ impl<'a> Reader<'a> {
             }
         }
 
-        let line = self.line.clone();
-
         // 解析字符串
         // TODO 处理字符中的转义和字符序列
-        if let Some('"') = line.chars().peekable().peek() {
-            for cap in self.re_string.captures_iter(&line) {
-                self.line = self.line.replacen(&cap[0], "", 1);
+        if self.line_buffer[self.tip..].starts_with("\"") {
+            for cap in self.re_string.captures_iter(&self.line_buffer[self.tip..]) {
+                self.tip += cap[0].len();
                 return Ok(Str(cap[1].to_owned()));
             }
             self.string = true;
-            let mut buffer = self.line.clone();
+            let mut buffer = self.line_buffer[self.tip..].to_string();
             loop {
-                self.line.clear();
+                self.tip = self.line_buffer.len();
                 if let Err(err) = self.read_line(false) {
                     match err {
                         LispError::EndOfInput => return self.read_error_eof("string"),
                         _ => return Err(err)
                     }
                 }
-                buffer.push_str(&self.line);
+                buffer.push_str(&self.line_buffer);
                 for cap in self.re_string.captures_iter(&buffer) {
-                    let rest = &buffer[cap[0].len()..];
-                    self.line = rest.to_string();
+                    self.tip += self.line_buffer.len() - (buffer.len() - cap[0].len());
                     self.string = false;
                     return Ok(Str(cap[1].to_owned()));
                 }
             }
         }
 
-        // 解析字符
-        for cap in self.re_char.captures_iter(&line) {
-            self.line = self.line.replacen(&cap[0], "", 1);
-            match name_to_char(&cap[1]) {
-                Some(c) => return Ok(Char(c)),
-                None => return self.read_error(&format!("unknown character name: {}", &cap[1])),
-            }
-        }
-
-        for cap in self.re_number.captures_iter(&line) {
-            self.line = self.line.replacen(&cap[0], "", 1);
+        for cap in self.re_number.captures_iter(&self.line_buffer[self.tip..]) {
+            self.tip += cap[0].len();
             return Ok(Number(cap[0].to_owned()));
         }
 
-        for cap in self.re_symbol.captures_iter(&line) {
-            self.line = self.line.replacen(&cap[0], "", 1);
+        for cap in self.re_symbol.captures_iter(&self.line_buffer[self.tip..]) {
+            self.tip += cap[0].len();
             return if &cap[0] == "." {
                 Ok(Rune('.'))
             } else {
@@ -345,8 +327,8 @@ impl<'a> Reader<'a> {
             };
         }
 
-        if line.starts_with(",@") {
-            self.line = self.line.replacen(",@", "", 1);
+        if self.line_buffer[self.tip..].starts_with(",@") {
+            self.tip += 2;
             if let Err(err) = self.read_line(true) {
                 match err {
                     LispError::EndOfInput => return self.read_error_eof("unquote (,@)"),
@@ -356,14 +338,16 @@ impl<'a> Reader<'a> {
             return Ok(UnquoteSplicing);
         }
 
-        let first = self.line.remove(0);
+        let first = self.line_buffer[self.tip..].chars().next().unwrap();
         match first {
             '(' => {
+                self.tip += 1;
                 self.last_delimiter = '(';
                 self.nest_level += 1;
                 return Ok(Rune(first));
             }
             ')' => {
+                self.tip += 1;
                 if self.nest_level == 0 || self.last_delimiter == '[' {
                     return self.read_error("unexpected ')'");
                 }
@@ -372,11 +356,13 @@ impl<'a> Reader<'a> {
                 return Ok(Rune(first));
             }
             '[' => {
+                self.tip += 1;
                 self.last_delimiter = '[';
                 self.nest_level += 1;
                 return Ok(Rune('('));
             }
             ']' => {
+                self.tip += 1;
                 if self.nest_level == 0 || self.last_delimiter == '(' {
                     return self.read_error("unexpected ']'");
                 }
@@ -385,6 +371,7 @@ impl<'a> Reader<'a> {
                 return Ok(Rune(')'));
             }
             '\'' => {
+                self.tip += 1;
                 if let Err(err) = self.read_line(true) {
                     match err {
                         LispError::EndOfInput => return self.read_error_eof("quote (')"),
@@ -394,6 +381,7 @@ impl<'a> Reader<'a> {
                 return Ok(Quote);
             }
             '`' => {
+                self.tip += 1;
                 if let Err(err) = self.read_line(true) {
                     match err {
                         LispError::EndOfInput => return self.read_error_eof("quasiquote (`)"),
@@ -403,6 +391,7 @@ impl<'a> Reader<'a> {
                 return Ok(Quasiquote);
             }
             ',' => {
+                self.tip += 1;
                 if let Err(err) = self.read_line(true) {
                     match err {
                         LispError::EndOfInput => return self.read_error_eof("unquote (,)"),
@@ -412,13 +401,23 @@ impl<'a> Reader<'a> {
                 return Ok(Unquote);
             }
             '#' => {
-                if let Some(next) = self.line.chars().next() {
-                    self.line.remove(0);
-                    return Ok(Pound(next.to_lowercase().to_string()));
+                // 解析字符
+                for cap in self.re_char.captures_iter(&self.line_buffer[self.tip..]) {
+                    self.tip += cap[0].len();
+                    match name_to_char(&cap[1]) {
+                        Some(c) => return Ok(Char(c)),
+                        None => return self.read_error(&format!("unknown character name: {}", &cap[1])),
+                    }
                 }
-                return self.read_error(&format!("`{}'", first));
+                // sharp-sign
+                let caps = self.re_sharp.captures(&self.line_buffer[self.tip..]).unwrap();
+                self.tip += caps[0].len();
+                return Ok(Sharp(caps[0].to_lowercase()));
             }
-            _ => return Ok(Rune(first)),
+            _ => {
+                self.tip += first.to_string().len();
+                return self.read_error(&format!("unexpected character '{}'", first))
+            },
         }
     }
 
@@ -431,17 +430,18 @@ impl<'a> Reader<'a> {
     }
 
     // See also https://www.gnu.org/software/mit-scheme/documentation/mit-scheme-ref/Additional-Notations.html
-    fn parse_pound(&mut self, lex: &str) -> LispResult<Sexp> {
+    fn parse_sharp_sign(&mut self, lex: &str) -> LispResult<Sexp> {
+        use self::Sexp::*;
         match lex {
-            "t" => Ok(Sexp::True),
-            "f" => Ok(Sexp::False),
-            // "i" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 非精确数前缀
-            // "e" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 精确数前缀
-            // "d" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 10进制数码前缀
-            // "x" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 16进制数码前缀
-            // "o" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 8进制数码前缀
-            // "b" => Ok(Sexp::Symbol(lex.to_owned())), // TODO 2进制数码前缀
-            _ => self.read_error(&format!("bad syntax: `#{}'", lex)),
+            "#t" => Ok(True),
+            "#f" => Ok(False),
+            // "#i" => Ok(Symbol(lex.to_owned())), // TODO 非精确数前缀
+            // "#e" => Ok(Symbol(lex.to_owned())), // TODO 精确数前缀
+            // "#d" => Ok(Symbol(lex.to_owned())), // TODO 10进制数码前缀
+            // "#x" => Ok(Symbol(lex.to_owned())), // TODO 16进制数码前缀
+            // "#o" => Ok(Symbol(lex.to_owned())), // TODO 8进制数码前缀
+            // "#b" => Ok(Symbol(lex.to_owned())), // TODO 2进制数码前缀
+            _ => self.read_error(&format!("invalid sharp-sign prefix: {:?}", lex)),
         }
     }
 
