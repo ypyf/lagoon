@@ -8,3 +8,5 @@
 (define (compose p1 p2) (lambda (arg) (p1 (p2 arg))))
 (define cadr (compose car cdr))
 (define cdar (compose cdr car))
+
+(define abs (lambda [n] (if (< n 0) (- 0 n) n)))

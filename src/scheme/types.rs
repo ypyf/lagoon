@@ -605,7 +605,7 @@ impl<'a> fmt::Display for Sexp {
                     string.push_str(&format!("{} ", expr))
                 }
                 if *last == Nil {
-                    // remove the last space
+                    // remove the trailing space
                     string.pop();
                 } else {
                     string.push_str(&format!(". {}", last));

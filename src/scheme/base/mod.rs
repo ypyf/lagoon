@@ -1,4 +1,4 @@
-pub mod basic;
+pub mod syntax;
 pub mod numeric;
 pub mod character;
 pub mod string;

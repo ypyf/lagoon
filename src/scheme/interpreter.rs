@@ -1,11 +1,11 @@
-use scheme::procedure::basic;
-use scheme::procedure::numeric;
-use scheme::procedure::numeric::Operator::*;
-use scheme::procedure::string;
-use scheme::procedure::predicate;
-use scheme::procedure::system;
-use scheme::procedure::list;
-use scheme::procedure::character;
+use scheme::base::syntax;
+use scheme::base::numeric;
+use scheme::base::numeric::Operator::*;
+use scheme::base::string;
+use scheme::base::predicate;
+use scheme::base::system;
+use scheme::base::list;
+use scheme::base::character;
 use scheme::reader::Reader;
 use scheme::types::Context;
 use scheme::types::LispResult;
@@ -65,12 +65,12 @@ impl Interpreter {
         self.ctx.def_proc("symbol?", predicate::is_symbol);
         self.ctx.def_proc("procedure?", predicate::is_procedure);
         self.ctx.def_proc("exit", system::exit_process);
-        self.ctx.def_synatx("define", basic::define);
-        self.ctx.def_synatx("set!", basic::assign);
-        self.ctx.def_synatx("quote", basic::quote);
-        self.ctx.def_synatx("lambda", basic::lambda);
-        self.ctx.def_synatx("if", basic::if_exp);
-        self.ctx.def_synatx("define-syntax", basic::define_syntax);
+        self.ctx.def_synatx("define", syntax::define);
+        self.ctx.def_synatx("set!", syntax::assign);
+        self.ctx.def_synatx("quote", syntax::quote);
+        self.ctx.def_synatx("lambda", syntax::lambda);
+        self.ctx.def_synatx("if", syntax::if_exp);
+        self.ctx.def_synatx("define-syntax", syntax::define_syntax);
 
         // 加载库文件
         // TODO 配置运行时根目录

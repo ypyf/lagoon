@@ -21,9 +21,13 @@ pub fn cdr(_context: &mut Context, args: &[Sexp]) -> LispResult<Sexp> {
     if arity != 1 {
         return Err(ArityMismatch("cdr".to_owned(), 1, arity));
     }
-    if args[0].is_pair() {
-        let tail = args[0].tail().unwrap();
-        Ok(List(tail.to_vec()))
+    if let List(xs) = &args[0] {
+        let (_, tail) = xs.split_first().unwrap();
+        if tail.len() == 1 {
+            Ok(tail[0].clone())
+        } else {
+            Ok(List(tail.to_vec()))
+        }
     } else {
         Err(TypeMismatch("pair".to_owned(), format!("{}", args[0])))
     }
