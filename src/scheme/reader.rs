@@ -145,19 +145,19 @@ impl<'a> Reader<'a> {
                         } else if let Some(last) = current_list.pop() {
                             // (a . (b)) = > (a b)
                             if let List(xs) = last {
-                                for i in xs {
+                                for i in *xs {
                                     current_list.push(i)
                                 }
                             } else {
                                 current_list.push(last)
                             }
-                            List(current_list)
+                            List(Box::new(current_list))
                         } else {
-                            List(current_list)
+                            List(Box::new(current_list))
                         }
                     } else {
                         current_list.push(Nil);
-                        List(current_list)
+                        List(Box::new(current_list))
                     };
 
                     if list_stack.is_empty() {
@@ -193,7 +193,7 @@ impl<'a> Reader<'a> {
         use self::Sexp::*;
         let mut expr = inner.clone();
         while let Some(m) = macros.pop() {
-            expr = List(vec![m, expr, Nil]);
+            expr = List(Box::new(vec![m, expr, Nil]));
         }
         expr
     }
@@ -322,12 +322,12 @@ impl<'a> Reader<'a> {
                     buffer.push(c);
                 } else if Reader::is_delimiter(c) {
                     if buffer == "+" || buffer == "-" {
-                        break
+                        break;
                     }
                     self.tip += buffer.len();
                     return Ok(Number(buffer));
                 } else {
-                    break
+                    break;
                 }
             }
         }
@@ -453,7 +453,7 @@ impl<'a> Reader<'a> {
         }
     }
 
-    fn is_delimiter(c:char) -> bool {
+    fn is_delimiter(c: char) -> bool {
         c.is_whitespace() || "()[]{}\";".contains(c)
     }
 

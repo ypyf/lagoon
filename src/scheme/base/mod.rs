@@ -4,4 +4,6 @@ pub mod character;
 pub mod string;
 pub mod list;
 pub mod predicate;
+pub mod equality;
+pub mod control;
 pub mod system;

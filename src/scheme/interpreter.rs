@@ -6,6 +6,8 @@ use scheme::base::predicate;
 use scheme::base::system;
 use scheme::base::list;
 use scheme::base::character;
+use scheme::base::control;
+use scheme::base::equality;
 use scheme::reader::Reader;
 use scheme::types::Context;
 use scheme::types::LispResult;
@@ -52,6 +54,9 @@ impl Interpreter {
         self.ctx.def_proc("car", list::car);
         self.ctx.def_proc("cdr", list::cdr);
         self.ctx.def_proc("cons", list::cons);
+        self.ctx.def_proc("eq?", equality::is_eq);
+        self.ctx.def_proc("eqv?", equality::is_eq);
+        self.ctx.def_proc("equal?", equality::is_equal);
         self.ctx.def_proc("pair?", predicate::is_pair);
         self.ctx.def_proc("string?", predicate::is_string);
         self.ctx.def_proc("number?", predicate::is_number);
@@ -64,6 +69,7 @@ impl Interpreter {
         self.ctx.def_proc("char?", predicate::is_char);
         self.ctx.def_proc("symbol?", predicate::is_symbol);
         self.ctx.def_proc("procedure?", predicate::is_procedure);
+        self.ctx.def_proc("apply", control::apply);
         self.ctx.def_proc("exit", system::exit_process);
         self.ctx.def_synatx("define", syntax::define);
         self.ctx.def_synatx("set!", syntax::assign);
@@ -83,7 +89,7 @@ impl Interpreter {
         for item in reader {
             match item {
                 Ok(datum) => {
-                    res = self.ctx.eval_top_level_form(&datum);
+                    res = self.ctx.eval(&datum);
                     if res.is_err() {
                         return res;
                     }
@@ -99,7 +105,7 @@ impl Interpreter {
         for item in Reader::new() {
             match item {
                 Ok(datum) => {
-                    match self.ctx.eval_top_level_form(&datum) {
+                    match self.ctx.eval(&datum) {
                         Ok(ref val) => match val {
                             Sexp::Void => (),
                             _ => {

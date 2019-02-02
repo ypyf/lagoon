@@ -45,9 +45,9 @@ pub fn define(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
             // (define (name x y) (+ x y)) => (define name (lambda (x y) (+ x y)))
             Nil => {
                 let expr = if let Some((name, params)) = xs.split_first() {
-                    let params = List(params.to_vec());
-                    let lambda = List(vec![Symbol("lambda".to_owned()), params, exprs[1].clone(), Nil]);
-                    List(vec![Symbol("define".to_owned()), name.clone(), lambda, Nil])
+                    let params = List(Box::new(params.to_vec()));
+                    let lambda = List(Box::new(vec![Symbol("lambda".to_owned()), params, exprs[1].clone(), Nil]));
+                    List(Box::new(vec![Symbol("define".to_owned()), name.clone(), lambda, Nil]))
                 } else {
                     return ctx.syntax_error("define");
                 };
@@ -56,9 +56,9 @@ pub fn define(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
             // (define (name x y . v) (+ x y)) => (define name (lambda (x y . v) (+ x y)))
             Symbol(_) => {
                 let expr = if let Some((name, params)) = xs.split_first() {
-                    let params = List(params.to_vec());
-                    let lambda = List(vec![Symbol("lambda".to_owned()), params, exprs[1].clone(), Nil]);
-                    List(vec![Symbol("define".to_owned()), name.clone(), lambda, Nil])
+                    let params = List(Box::new(params.to_vec()));
+                    let lambda = List(Box::new(vec![Symbol("lambda".to_owned()), params, exprs[1].clone(), Nil]));
+                    List(Box::new(vec![Symbol("define".to_owned()), name.clone(), lambda, Nil]))
                 } else {
                     return ctx.syntax_error("define");
                 };
@@ -144,6 +144,7 @@ pub fn lambda(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
     }
 }
 
+// FIXME tail call optimization
 pub fn if_exp(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
     let arity = exprs.len();
     if arity < 2 || arity > 3 {
@@ -154,7 +155,7 @@ pub fn if_exp(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
         let pred = &exprs[0];
         let conseq = &exprs[1];
         if ctx.eval(pred)?.is_true() {
-            ctx.eval(conseq)    // FIXME 尾部
+            ctx.eval(conseq)
         } else {
             Ok(Void)
         }
@@ -163,9 +164,9 @@ pub fn if_exp(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
         let conseq = &exprs[1];
         let alt = &exprs[2];
         if ctx.eval(pred)?.is_true() {
-            ctx.eval(conseq)    // FIXME 尾部
+            ctx.eval(conseq)
         } else {
-            ctx.eval(alt)       // FIXME 尾部
+            ctx.eval(alt)
         }
     }
 }
@@ -326,7 +327,7 @@ fn check_syntax_rules_clause(ctx: &Context, clause: &Sexp) -> LispResult<(Sexp, 
             return ctx.syntax_error1("syntax-rules", &error);
         }
         let pattern = compile_pattern(ctx, clause, &xs[0])?;
-        // TODO check template
+// TODO check template
         let template = xs[1].clone();
         Ok((pattern, template))
     } else {

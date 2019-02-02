@@ -36,10 +36,10 @@ mod tests {
     fn lambda() {
         let mut interp = Interpreter::new();
         // equivalent to (list a b c)
-        assert_eq!(Ok(List(vec![Number(1), Number(2), Number(3), Nil])), interp.eval_string("((lambda x x) 1 2 3)"));
+        assert_eq!(Ok(List(Box::new(vec![Number(1), Number(2), Number(3), Nil]))), interp.eval_string("((lambda x x) 1 2 3)"));
         assert_eq!(Ok(Number(1)), interp.eval_string("((lambda (a b . x) a) 1 2 3)"));
         assert_eq!(Ok(Number(2)), interp.eval_string("((lambda (a b . x) b) 1 2 3)"));
-        assert_eq!(Ok(List(vec![Number(3), Nil])), interp.eval_string("((lambda (a b . x) x) 1 2 3)"));
+        assert_eq!(Ok(List(Box::new(vec![Number(3), Nil]))), interp.eval_string("((lambda (a b . x) x) 1 2 3)"));
     }
 
     #[test]

@@ -26,7 +26,7 @@ pub fn cdr(_context: &mut Context, args: &[Sexp]) -> LispResult<Sexp> {
         if tail.len() == 1 {
             Ok(tail[0].clone())
         } else {
-            Ok(List(tail.to_vec()))
+            Ok(List(Box::new(tail.to_vec())))
         }
     } else {
         Err(TypeMismatch("pair".to_owned(), format!("{}", args[0])))
@@ -44,6 +44,6 @@ pub fn cons(_context: &mut Context, args: &[Sexp]) -> LispResult<Sexp> {
         xs.insert(0, a);
         Ok(List(xs.clone()))
     } else {
-        Ok(List(vec![a, b]))
+        Ok(List(Box::new(vec![a, b])))
     }
 }

@@ -14,7 +14,7 @@ pub type LispResult<T> = Result<T, LispError>;
 
 type Env = BTreeMap<String, Rc<RefCell<Sexp>>>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Context {
     env: Rc<RefCell<Env>>,
     up: Option<Rc<Context>>,
@@ -86,44 +86,64 @@ impl Context {
         Err(LispError::BadSyntax(form.to_string(), Some(reason.to_string())))
     }
 
-    pub fn eval_top_level_form(&mut self, expr: &Sexp) -> LispResult<Sexp> {
+    pub fn eval(&mut self, expr: &Sexp) -> LispResult<Sexp> {
         use self::Sexp::*;
         use self::LispError::*;
         match expr {
-            Symbol(name) => match self.lookup(&name) {
-                Some(val) => {
-                    let val = val.borrow().clone();
-                    match &val {
-                        Keyword { name, .. } => self.syntax_error(&name),
-                        Syntax { keyword, .. } => self.syntax_error(&keyword),
-                        _ => Ok(val)
-                    }
+            Nil => return Err(ApplyError("missing procedure expression".to_owned())),
+            Symbol(name) => if let Some(val) = self.lookup(&name) {
+                let val = val.borrow().clone();
+                match &val {
+                    // 语法关键字如果不位于列表头部是无效的
+                    Keyword { name, .. } => self.syntax_error(&name),
+                    Syntax { keyword, .. } => self.syntax_error(&keyword),
+                    _ => Ok(val)
                 }
-                None => Err(Undefined(name.to_string())),
+            } else {
+                Err(Undefined(name.to_string()))
+            }
+            List(xs) => self.eval_list(&*xs),
+            _ => Ok(expr.clone()),
+        }
+    }
+
+    // 对列表中的第一个元素求值
+    fn eval_head(&mut self, expr: &Sexp) -> LispResult<Sexp> {
+        use self::Sexp::*;
+        use self::LispError::*;
+        match expr {
+            Symbol(name) => if let Some(val) = self.lookup(&name) {
+                Ok(val.borrow().clone())
+            } else {
+                Err(Undefined(name.to_string()))
             }
             _ => self.eval(expr),
         }
     }
 
-    pub fn eval(&mut self, expr: &Sexp) -> LispResult<Sexp> {
+    // 对列表求值
+    fn eval_list(&mut self, exprs: &[Sexp]) -> LispResult<Sexp> {
         use self::Sexp::*;
-        use self::LispError::*;
 
-        match expr {
-            Symbol(name) => match self.lookup(&name) {
-                Some(val) => Ok(val.borrow().clone()),
-                None => Err(Undefined(name.to_string())),
+        let (head, tail) = exprs.split_first().unwrap();
+        let proc = self.eval_head(head)?;
+        match proc {
+            Syntax { keyword, transformer } => {
+                let expr = List(Box::new(exprs.to_vec()));
+                self.apply_transformer(&keyword, transformer, &expr)
             }
-            Nil => return Err(ApplyError("missing procedure expression".to_owned())),
-            List(xs) => {
-                let (head, tail) = xs.split_first().unwrap();
-                let proc = self.eval(head)?;
-                match proc {
-                    Syntax { keyword, transformer } => self.apply_transformer(&keyword, transformer, expr),
-                    _ => self.apply(&proc, tail),
+            Keyword { name: _, func } => self.apply_keyword(func, tail),
+            _ => {
+                let (last, init) = tail.split_last().unwrap();
+                if *last != Nil {
+                    return self.syntax_error("apply");
                 }
+                let args: Result<Vec<_>, _> = init.iter().map(|e| self.eval(e)).collect();
+                if args.is_err() {
+                    return Err(args.unwrap_err());
+                }
+                self.apply(&proc, &args.unwrap())
             }
-            _ => Ok(expr.clone()), // 其它表达式求值到其本身
         }
     }
 
@@ -131,8 +151,8 @@ impl Context {
         let mut rules = transformer.rules.clone();
         for rule in &mut rules {
             println!("{}", rule.pattern);
-            if let Some(bindings) = Context::match_syntax_rule(&rule.pattern, &form) {
-//                dbg!(&bindings);
+            if let Some(bindings) = Context::match_syntax_rule(&rule.pattern, form) {
+                // dbg!(&bindings);
                 let expr = self.render_template(&bindings, &rule.template);
                 println!("{}", expr);
                 return self.eval(&expr);
@@ -224,52 +244,36 @@ impl Context {
         }
     }
 
-    fn apply(&mut self, proc: &Sexp, exprs: &[Sexp]) -> LispResult<Sexp> {
+    fn apply_keyword(&mut self, func: HostFunction, exprs: &[Sexp]) -> LispResult<Sexp> {
+        use self::Sexp::*;
+        let (last, init) = exprs.split_last().unwrap();
+        let args = if *last == Nil {
+            init
+        } else {
+            exprs
+        };
+        func(self, args)
+    }
+
+    pub fn apply(&mut self, proc: &Sexp, exprs: &[Sexp]) -> LispResult<Sexp> {
         use self::Sexp::*;
         use self::LispError::*;
 
-        let (last, init) = exprs.split_last().unwrap();
         match proc {
-            Keyword { name: _, func } => {
-                let args = if *last == Nil {
-                    init
-                } else {
-                    exprs
-                };
-                func(self, args)
-            }
             Function { name: _, func } => {
-                if *last != Nil {
-                    return self.syntax_error("apply");
-                }
-                let args: Result<Vec<_>, _> = init.iter().map(|e| self.eval(e)).collect();
-                if args.is_err() {
-                    return Err(args.unwrap_err());
-                }
-                func(self, &args.unwrap())
+                func(self, exprs)
             }
             Closure { name, params, vararg, body, env } => {
-                if *last != Nil {
-                    return self.syntax_error("apply");
-                }
-
                 let func_name = if name.is_empty() {
                     "#<procedure>"
                 } else {
                     name
                 };
 
+                let args = exprs;
                 let nparams = params.len();
-                let nargs = init.len();
-
+                let nargs = args.len();
                 let mut ctx = Context::new(Some(Rc::new(env.clone())));
-
-                let args: Result<Vec<_>, _> = init.iter().map(|e| self.eval(e)).collect();
-                if args.is_err() {
-                    return Err(args.unwrap_err());
-                }
-                let args = args.unwrap();
-
                 match vararg {
                     Some(ref name) => {
                         if nargs < nparams {
@@ -283,7 +287,7 @@ impl Context {
                         } else {
                             let mut xs = rest.to_vec();
                             xs.push(Nil);
-                            List(xs)
+                            List(Box::new(xs))
                         };
                         ctx.insert(name, &varg);
                     }
@@ -308,20 +312,20 @@ impl Context {
 
 pub type HostFunction = fn(&mut Context, &[Sexp]) -> LispResult<Sexp>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SyntaxRule {
     pub pattern: Sexp,
     pub template: Sexp,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Transformer {
     pub id: Option<String>,
     pub literals: Vec<String>,
     pub rules: Vec<SyntaxRule>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Sexp {
     Void,
     Nil,
@@ -331,7 +335,7 @@ pub enum Sexp {
     False,
     Number(i64),
     Symbol(String),
-    List(Vec<Sexp>),
+    List(Box<Vec<Sexp>>),
     Keyword {
         name: String,
         func: HostFunction,
@@ -531,46 +535,6 @@ impl Sexp {
             true
         } else {
             false
-        }
-    }
-}
-
-// See also r5rs 6.1 (eqv? obj1 obj2)
-// FIXME 需要完善函数、列表和字符串
-impl<'a> PartialEq for Sexp {
-    fn eq(&self, other: &Sexp) -> bool {
-        use self::Sexp::*;
-
-        match (self, other) {
-            (Nil, Nil) => true,
-            (True, True) => true,
-            (False, False) => true,
-            (Symbol(s1), Symbol(s2)) => s1 == s2, // (string=? (symbol->string obj1) (symbol->string obj2))
-            (Number(n1), Number(n2)) => n1 == n2, // (= obj1 obj2)
-            (Char(c1), Char(c2)) => c1 == c2,     // (char=? obj1 obj2)
-            (Str(s1, _), Str(s2, _)) => s1 == s2,
-            (List(xs1), List(xs2)) => xs1 == xs2,
-            (
-                Keyword {
-                    name: n1,
-                    func: _,
-                },
-                Keyword {
-                    name: n2,
-                    func: _,
-                },
-            ) => n1 == n2,
-            (
-                Function {
-                    name: n1,
-                    func: _,
-                },
-                Function {
-                    name: n2,
-                    func: _,
-                },
-            ) => n1 == n2, // FIXME
-            _ => false,
         }
     }
 }
