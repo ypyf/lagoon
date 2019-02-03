@@ -37,7 +37,7 @@ pub struct Reader<'a> {
     tip: usize,
     // 当前行
     line_buffer: String,
-    last_delimiter: char,
+    last_paren: char,
     // 嵌套深度
     nest_level: isize,
     // 偷看
@@ -71,7 +71,7 @@ impl<'a> Reader<'a> {
             re_sharp: Regex::new(r"^#(\S[^()\[\]{}\s]*|\s)?").unwrap(),
             tip: 0,
             line_buffer: String::new(),
-            last_delimiter: '\u{0}',
+            last_paren: '\u{0}',
             nest_level: 0,
             lookahead: None,
             string: false,
@@ -94,7 +94,7 @@ impl<'a> Reader<'a> {
     pub fn read(&mut self) -> LispResult<Sexp> {
         use self::Sexp::*;
 
-        self.last_delimiter = '\u{0}';
+        self.last_paren = '\u{0}';
         self.nest_level = 0;
         self.string = false;
 
@@ -170,13 +170,13 @@ impl<'a> Reader<'a> {
                 }
                 Token::Rune('.') => {
                     if list_level == 0 || dot_count > 0 || self.lookahead()? == Token::Rune(')') {
-                        return self.read_error("illegal use of `.'");
+                        return self.read_error("unexpected dot (.)");
                     }
                     dot_count += 1
                 }
                 _ => {
                     if dot_count > 0 && self.lookahead()? != Token::Rune(')') {
-                        return self.read_error("illegal use of `.'");
+                        return self.read_error("more than one item found after dot (.)");
                     }
                     let expr = self.read_atom(token)?;
                     if list_level == 0 {
@@ -356,31 +356,31 @@ impl<'a> Reader<'a> {
         match first {
             '(' => {
                 self.tip += 1;
-                self.last_delimiter = '(';
+                self.last_paren = '(';
                 self.nest_level += 1;
                 return Ok(Rune(first));
             }
             ')' => {
                 self.tip += 1;
-                if self.nest_level == 0 || self.last_delimiter == '[' {
+                if self.nest_level == 0 || self.last_paren == '[' {
                     return self.read_error("unexpected ')'");
                 }
-                self.last_delimiter = ')';
+                self.last_paren = ')';
                 self.nest_level -= 1;
                 return Ok(Rune(first));
             }
             '[' => {
                 self.tip += 1;
-                self.last_delimiter = '[';
+                self.last_paren = '[';
                 self.nest_level += 1;
                 return Ok(Rune('('));
             }
             ']' => {
                 self.tip += 1;
-                if self.nest_level == 0 || self.last_delimiter == '(' {
+                if self.nest_level == 0 || self.last_paren == '(' {
                     return self.read_error("unexpected ']'");
                 }
-                self.last_delimiter = ']';
+                self.last_paren = ']';
                 self.nest_level -= 1;
                 return Ok(Rune(')'));
             }
@@ -454,18 +454,18 @@ impl<'a> Reader<'a> {
     }
 
     fn is_delimiter(c: char) -> bool {
-        c.is_whitespace() || "()[]{}\";".contains(c)
+        c.is_whitespace() || "()[]{}|\";".contains(c)
     }
 
     fn read_error<T>(&mut self, err: &str) -> LispResult<T> {
-        self.last_delimiter = '\u{0}';
+        self.last_paren = '\u{0}';
         self.nest_level = 0;
         self.string = false;
         Err(LispError::ReadError(err.to_owned()))
     }
 
     fn read_error_eof<T>(&mut self, token: &str) -> LispResult<T> {
-        self.last_delimiter = '\u{0}';
+        self.last_paren = '\u{0}';
         self.nest_level = 0;
         self.string = false;
         Err(LispError::ReadError(format!("unexpected end-of-file reading {}", token)))
