@@ -1,6 +1,5 @@
 extern crate itertools;
 
-use scheme::types::Context;
 use scheme::types::LispError::*;
 use scheme::types::LispResult;
 use scheme::types::Sexp;
@@ -30,7 +29,7 @@ impl fmt::Display for Operator {
     }
 }
 
-pub fn arith_op(operator: Operator, _context: &mut Context, args: &[Sexp]) -> LispResult<Sexp> {
+pub fn arith_op(operator: Operator, args: &[Sexp]) -> LispResult<Sexp> {
     use self::Operator::*;
     let coll: Result<Vec<_>, _> = args.iter().map(|arg| if let Number(n) = arg { Ok(*n) } else { Err(arg) }).collect();
     if coll.is_err() {
@@ -59,7 +58,7 @@ pub fn arith_op(operator: Operator, _context: &mut Context, args: &[Sexp]) -> Li
     Ok(Number(res))
 }
 
-pub fn compare<F>(name: &str, operator: F, _context: &mut Context, args: &[Sexp]) -> LispResult<Sexp> where
+pub fn compare<F>(name: &str, operator: F, args: &[Sexp]) -> LispResult<Sexp> where
     F: Fn(i64, i64) -> bool {
     let arity = args.len();
     if arity < 2 {

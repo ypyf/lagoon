@@ -18,6 +18,8 @@ use std::fs::File;
 use std::process::exit;
 use std::io::BufReader;
 use std::io::Cursor;
+use scheme::types::HostFunction2;
+use scheme::types::HostFunction1;
 
 pub struct Interpreter {
     ctx: Context,
@@ -32,54 +34,69 @@ impl Interpreter {
         interp
     }
 
+    pub fn bind_synatx(&mut self, name: &str, func: HostFunction2) {
+        let form = Sexp::Keyword { name: name.to_owned(), func };
+        self.ctx.insert(name, &form);
+    }
+
+    pub fn bind_proc(&mut self, name: &str, func: HostFunction2) {
+        let proc = Sexp::Procedure { name: name.to_owned(), func };
+        self.ctx.insert(name, &proc);
+    }
+
+    pub fn bind_func(&mut self, name: &str, func: HostFunction1) {
+        let proc = Sexp::Function { name: name.to_owned(), func };
+        self.ctx.insert(name, &proc);
+    }
+
     fn init_globals(&mut self) {
-        self.ctx.def_proc("+", |ctx, args| numeric::arith_op(Add, ctx, args));
-        self.ctx.def_proc("-", |ctx, args| numeric::arith_op(Sub, ctx, args));
-        self.ctx.def_proc("*", |ctx, args| numeric::arith_op(Mul, ctx, args));
-        self.ctx.def_proc("/", |ctx, args| numeric::arith_op(Div, ctx, args));
-        self.ctx.def_proc("=", |ctx, args| numeric::compare("=", |x, y| x == y, ctx, args));
-        self.ctx.def_proc("<", |ctx, args| numeric::compare("<", |x, y| x < y, ctx, args));
-        self.ctx.def_proc(">", |ctx, args| numeric::compare(">", |x, y| x > y, ctx, args));
-        self.ctx.def_proc("<=", |ctx, args| numeric::compare("<=", |x, y| x <= y, ctx, args));
-        self.ctx.def_proc(">=", |ctx, args| numeric::compare(">=", |x, y| x >= y, ctx, args));
-        self.ctx.def_proc("char=?", |ctx, args| character::compare("char=?", |x, y| x == y, ctx, args));
-        self.ctx.def_proc("char<?", |ctx, args| character::compare("char<?", |x, y| x < y, ctx, args));
-        self.ctx.def_proc("char>?", |ctx, args| character::compare("char>?", |x, y| x > y, ctx, args));
-        self.ctx.def_proc("char<=?", |ctx, args| character::compare("char<=?", |x, y| x <= y, ctx, args));
-        self.ctx.def_proc("char>=?", |ctx, args| character::compare("char>=?", |x, y| x >= y, ctx, args));
-        self.ctx.def_proc("make-string", string::make_string);
-        self.ctx.def_proc("string-length", string::string_length);
-        self.ctx.def_proc("string-ref", string::string_ref);
-        self.ctx.def_proc("string-set!", string::string_set);
-        self.ctx.def_proc("car", list::car);
-        self.ctx.def_proc("cdr", list::cdr);
-        self.ctx.def_proc("cons", list::cons);
-        self.ctx.def_proc("eq?", equality::is_eq);
-        self.ctx.def_proc("eqv?", equality::is_eq);
-        self.ctx.def_proc("equal?", equality::is_equal);
-        self.ctx.def_proc("pair?", predicate::is_pair);
-        self.ctx.def_proc("string?", predicate::is_string);
-        self.ctx.def_proc("number?", predicate::is_number);
-        self.ctx.def_proc("integer?", predicate::is_integer);
-        self.ctx.def_proc("rational?", predicate::is_rational);
-        self.ctx.def_proc("real?", predicate::is_real);
-        self.ctx.def_proc("complex?", predicate::is_complex);
-        self.ctx.def_proc("exact?", predicate::is_exact);
-        self.ctx.def_proc("inexact?", predicate::is_inexact);
-        self.ctx.def_proc("char?", predicate::is_char);
-        self.ctx.def_proc("symbol?", predicate::is_symbol);
-        self.ctx.def_proc("procedure?", predicate::is_procedure);
-        self.ctx.def_proc("apply", control::apply);
-        self.ctx.def_proc("exit", system::exit_process);
-        self.ctx.def_synatx("define", syntax::define);
-        self.ctx.def_synatx("set!", syntax::assign);
-        self.ctx.def_synatx("quote", syntax::quote);
-        self.ctx.def_synatx("lambda", syntax::lambda);
-        self.ctx.def_synatx("if", syntax::if_exp);
-        self.ctx.def_synatx("define-syntax", syntax::define_syntax);
+        self.bind_func("+", |args| numeric::arith_op(Add, args));
+        self.bind_func("-", |args| numeric::arith_op(Sub, args));
+        self.bind_func("*", |args| numeric::arith_op(Mul, args));
+        self.bind_func("/", |args| numeric::arith_op(Div, args));
+        self.bind_func("=", |args| numeric::compare("=", |x, y| x == y, args));
+        self.bind_func("<", |args| numeric::compare("<", |x, y| x < y, args));
+        self.bind_func(">", |args| numeric::compare(">", |x, y| x > y, args));
+        self.bind_func("<=", |args| numeric::compare("<=", |x, y| x <= y, args));
+        self.bind_func(">=", |args| numeric::compare(">=", |x, y| x >= y, args));
+        self.bind_func("char=?", |args| character::compare("char=?", |x, y| x == y, args));
+        self.bind_func("char<?", |args| character::compare("char<?", |x, y| x < y, args));
+        self.bind_func("char>?", |args| character::compare("char>?", |x, y| x > y, args));
+        self.bind_func("char<=?", |args| character::compare("char<=?", |x, y| x <= y, args));
+        self.bind_func("char>=?", |args| character::compare("char>=?", |x, y| x >= y, args));
+        self.bind_func("make-string", string::make_string);
+        self.bind_func("string-length", string::string_length);
+        self.bind_func("string-ref", string::string_ref);
+        self.bind_func("string-set!", string::string_set);
+        self.bind_func("car", list::car);
+        self.bind_func("cdr", list::cdr);
+        self.bind_func("cons", list::cons);
+        self.bind_func("eq?", equality::is_eq);
+        self.bind_func("eqv?", equality::is_eq);
+        self.bind_func("equal?", equality::is_equal);
+        self.bind_func("pair?", predicate::is_pair);
+        self.bind_func("string?", predicate::is_string);
+        self.bind_func("number?", predicate::is_number);
+        self.bind_func("integer?", predicate::is_integer);
+        self.bind_func("rational?", predicate::is_rational);
+        self.bind_func("real?", predicate::is_real);
+        self.bind_func("complex?", predicate::is_complex);
+        self.bind_func("exact?", predicate::is_exact);
+        self.bind_func("inexact?", predicate::is_inexact);
+        self.bind_func("char?", predicate::is_char);
+        self.bind_func("symbol?", predicate::is_symbol);
+        self.bind_func("procedure?", predicate::is_procedure);
+        self.bind_proc("apply", control::apply);
+        self.bind_proc("load", system::load);
+        self.bind_proc("exit", system::exit_process);
+        self.bind_synatx("define", syntax::define);
+        self.bind_synatx("set!", syntax::assign);
+        self.bind_synatx("quote", syntax::quote);
+        self.bind_synatx("lambda", syntax::lambda);
+        self.bind_synatx("if", syntax::if_exp);
+        self.bind_synatx("define-syntax", syntax::define_syntax);
 
         // 加载库文件
-        // TODO 配置运行时根目录
         self.run_once("./libs/stdlib.scm");
     }
 

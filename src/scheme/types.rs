@@ -1,10 +1,11 @@
+use scheme::data::iterator::{ListIterator, ListIntoIterator};
+
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::error::Error;
 use std::fmt;
 use std::rc::Rc;
 use std::str;
 use std::cell::RefCell;
-use scheme::data::iterator::{ListIterator, ListIntoIterator};
 
 pub const UNDERSCORE: &str = "_";
 
@@ -66,16 +67,6 @@ impl Context {
         } else {
             false
         }
-    }
-
-    pub fn def_synatx(&mut self, name: &str, func: HostFunction) {
-        let form = Sexp::Keyword { name: name.to_owned(), func };
-        self.insert(name, &form);
-    }
-
-    pub fn def_proc(&mut self, name: &str, func: HostFunction) {
-        let proc = Sexp::Function { name: name.to_owned(), func };
-        self.insert(name, &proc);
     }
 
     pub fn syntax_error<T>(&self, form: &str) -> LispResult<T> {
@@ -244,7 +235,7 @@ impl Context {
         }
     }
 
-    fn apply_keyword(&mut self, func: HostFunction, exprs: &[Sexp]) -> LispResult<Sexp> {
+    fn apply_keyword(&mut self, func: HostFunction2, exprs: &[Sexp]) -> LispResult<Sexp> {
         use self::Sexp::*;
         let (last, init) = exprs.split_last().unwrap();
         let args = if *last == Nil {
@@ -261,6 +252,9 @@ impl Context {
 
         match proc {
             Function { name: _, func } => {
+                func(exprs)
+            }
+            Procedure { name: _, func } => {
                 func(self, exprs)
             }
             Closure { name, params, vararg, body, env } => {
@@ -310,7 +304,8 @@ impl Context {
     }
 }
 
-pub type HostFunction = fn(&mut Context, &[Sexp]) -> LispResult<Sexp>;
+pub type HostFunction1 = fn(&[Sexp]) -> LispResult<Sexp>;
+pub type HostFunction2 = fn(&mut Context, &[Sexp]) -> LispResult<Sexp>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SyntaxRule {
@@ -338,11 +333,15 @@ pub enum Sexp {
     List(Box<Vec<Sexp>>),
     Keyword {
         name: String,
-        func: HostFunction,
+        func: HostFunction2,
     },
     Function {
         name: String,
-        func: HostFunction,
+        func: HostFunction1,
+    },
+    Procedure {
+        name: String,
+        func: HostFunction2,
     },
     // Vector(Vec<&'a Sexp<'a>>),
     Closure {
@@ -554,6 +553,7 @@ impl<'a> fmt::Display for Sexp {
             Char(n) => write!(f, "#\\{}", char_to_name(*n)),
             Str(n, _) => write!(f, "{:?}", n.borrow()), // 字符串输出时显示双引号
             Keyword { name, .. } => write!(f, "#<keyword {}>", name),
+            Procedure { name, .. } => write!(f, "#<procedure {}>", name),
             Function { name, .. } => write!(f, "#<procedure {}>", name),
             Closure { name, .. } => if name.is_empty() {
                 write!(f, "#<procedure>")
@@ -591,6 +591,7 @@ pub enum LispError {
     BadSyntax(String, Option<String>),
     IndexOutOfRange(String, usize, usize, usize),
     Undefined(String),
+    SystemError(String),
     ApplyError(String),
     ArityMismatch(String, usize, usize),
     TypeMismatch(String, String),
@@ -608,6 +609,7 @@ impl<'a> PartialEq for LispError {
             (DivisionByZero(_), DivisionByZero(_)) => true,
             (Undefined(_), Undefined(_)) => true,
             (BadSyntax(_, _), BadSyntax(_, _)) => true,
+            (SystemError(_), SystemError(_)) => true,
             (ApplyError(_), ApplyError(_)) => true,
             (ArityMismatch(_, _, _), ArityMismatch(_, _, _)) => true,
             (TypeMismatch(_, _), TypeMismatch(_, _)) => true,
@@ -638,6 +640,7 @@ impl fmt::Display for LispError {
             IndexOutOfRange(sym, index, lower, upper) =>
                 write!(f, "{}: index is out of range\n index: {}\n valid range: [{}, {}]", sym, index, lower, upper),
             Undefined(sym) => write!(f, "Error: variable {} is not bound", sym),
+            SystemError(err) => write!(f, "Error: {}", err),
             ApplyError(err) => write!(f, "application: {}", err),
             ArityMismatch(sym, expected, given) => write!(
                 f,
@@ -661,6 +664,7 @@ impl Error for LispError {
             BadSyntax(_, _) => "bad syntax",
             Undefined(_) => "undefined identifier",
             IndexOutOfRange(_, _, _, _) => "index out of range",
+            SystemError(_) => "system error",
             ApplyError(_) => "application error",
             ArityMismatch(_, _, _) => "arity mismatch",
             TypeMismatch(_, _) => "type mismatch",

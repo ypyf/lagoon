@@ -9,11 +9,12 @@ use scheme::types::{UNDERSCORE, ELLIPSIS};
 
 use std::collections::{HashSet, VecDeque};
 use std::rc::Rc;
+use scheme::types::LispError::BadSyntax;
 
-pub fn quote(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
+pub fn quote(_context: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
     let arity = exprs.len();
     if arity != 1 {
-        return ctx.syntax_error("quote");
+        return Err(BadSyntax("quote".to_string(), None));
     }
     Ok(exprs[0].clone())
 }
