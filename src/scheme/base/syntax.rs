@@ -1,15 +1,12 @@
-use scheme::types::Context;
-use scheme::types::LispError::*;
-use scheme::types::LispResult;
-use scheme::types::SyntaxRule;
-use scheme::types::Transformer;
-use scheme::types::Sexp;
-use scheme::types::Sexp::*;
-use scheme::types::{UNDERSCORE, ELLIPSIS};
+use scheme::context::Context;
+use scheme::data::{ELLIPSIS, UNDERSCORE, LispResult};
+use scheme::data::error::LispError::{AssignError, BadSyntax};
+use scheme::data::value::Sexp::*;
+use scheme::data::value::{Sexp, SyntaxRule, Transformer};
 
 use std::collections::{HashSet, VecDeque};
 use std::rc::Rc;
-use scheme::types::LispError::BadSyntax;
+
 
 pub fn quote(_context: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
     let arity = exprs.len();
@@ -84,10 +81,10 @@ pub fn assign(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
             if ctx.assign(sym, &val) {
                 Ok(Void)
             } else {
-                return Err(AssignError("cannot set undefined".to_owned(), ctx.clone()));
+                return Err(AssignError("cannot set undefined".to_owned()));
             }
         }
-        _ => return Err(AssignError("not an identifier".to_owned(), ctx.clone())),
+        _ => return Err(AssignError("not an identifier".to_owned())),
     }
 }
 

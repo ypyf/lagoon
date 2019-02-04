@@ -1,9 +1,8 @@
 extern crate regex;
 
-use scheme::types::LispError;
-use scheme::types::LispResult;
-use scheme::types::Sexp;
-use scheme::types::name_to_char;
+use scheme::data::LispResult;
+use scheme::data::error::LispError;
+use scheme::data::value::Sexp;
 
 use std::error::Error;
 use std::io::{self, Stdin, BufRead, Write};
@@ -471,3 +470,30 @@ impl<'a> Reader<'a> {
         Err(LispError::ReadError(format!("unexpected end-of-file reading {}", token)))
     }
 }
+
+// 把字符名称转换成ASCII
+// TODO 补充完整ASCII中所有的不可打印字符
+// #\newline应该根据平台决定是#\linefeed还是#\return
+// See also https://groups.csail.mit.edu/mac/ftpdir/scheme-7.4/doc-html/scheme_6.html
+pub fn name_to_char(name: &str) -> Option<char> {
+    match name.to_lowercase().as_str() {
+        "altmode" => Some('\x1b'), // ESC
+        "backnext" => Some('\x1f'), // US
+        "backspace" => Some('\x08'), // BS
+        "call" => Some('\x1a'), // SUB
+        "linefeed" => Some('\x0a'), // LF
+        "page" => Some('\x0c'), // FF
+        "return" => Some('\x0d'), // CR
+        "rubout" => Some('\x7f'), // DEL
+        "space" => Some('\x20'),
+        "tab" => Some('\x09'), // HT
+        "newline" => Some('\n'),
+        _ => if name.chars().count() == 1 {
+            // 单个unicode字符
+            name.chars().next()
+        } else {
+            None
+        }
+    }
+}
+

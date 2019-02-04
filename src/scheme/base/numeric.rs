@@ -1,9 +1,9 @@
 extern crate itertools;
 
-use scheme::types::LispError::*;
-use scheme::types::LispResult;
-use scheme::types::Sexp;
-use scheme::types::Sexp::{Number, True, False};
+use scheme::data::LispResult;
+use scheme::data::error::LispError::*;
+use scheme::data::value::Sexp;
+use scheme::data::value::Sexp::{Number, True, False};
 
 use std::fmt;
 use std::ops;

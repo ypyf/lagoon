@@ -1,6 +1,6 @@
-use scheme::types::Sexp;
-use scheme::types::LispResult;
-use scheme::types::LispError::ArityMismatch;
+use scheme::data::LispResult;
+use scheme::data::value::Sexp;
+use scheme::data::error::LispError::ArityMismatch;
 
 // eq?
 pub fn is_eq(args: &[Sexp]) -> LispResult<Sexp> {

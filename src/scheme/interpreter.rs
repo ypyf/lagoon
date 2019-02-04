@@ -1,25 +1,15 @@
-use scheme::base::syntax;
-use scheme::base::numeric;
+use scheme::base::*;
 use scheme::base::numeric::Operator::*;
-use scheme::base::string;
-use scheme::base::predicate;
-use scheme::base::system;
-use scheme::base::list;
-use scheme::base::character;
-use scheme::base::control;
-use scheme::base::equality;
 use scheme::reader::Reader;
-use scheme::types::Context;
-use scheme::types::LispResult;
-use scheme::types::LispError;
-use scheme::types::Sexp;
+use scheme::context::Context;
+use scheme::data::value::{Sexp, HostFunction1, HostFunction2};
+use scheme::data::LispResult;
+use scheme::data::error::LispError;
 
 use std::fs::File;
 use std::process::exit;
 use std::io::BufReader;
 use std::io::Cursor;
-use scheme::types::HostFunction2;
-use scheme::types::HostFunction1;
 
 pub struct Interpreter {
     ctx: Context,

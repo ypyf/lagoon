@@ -1,12 +1,12 @@
-use scheme::types::Context;
-use scheme::types::Sexp;
-use scheme::types::Sexp::{Void, Number, Str};
-use scheme::types::LispError::{ArityMismatch, TypeMismatch, SystemError};
-use scheme::types::LispResult;
+use scheme::context::Context;
+use scheme::reader::Reader;
+use scheme::data::LispResult;
+use scheme::data::value::Sexp;
+use scheme::data::value::Sexp::*;
+use scheme::data::error::LispError::*;
 
 use std::process::exit;
 use std::fs::File;
-use scheme::reader::Reader;
 use std::io::BufReader;
 
 pub fn exit_process(_context: &mut Context, args: &[Sexp]) -> LispResult<Sexp> {

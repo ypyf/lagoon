@@ -8,8 +8,8 @@ pub mod scheme;
 #[cfg(test)]
 mod tests {
     use test::Bencher;
-    use scheme::types::Sexp::*;
-    use scheme::types::LispError::*;
+    use scheme::data::value::Sexp::*;
+    use scheme::data::error::LispError::*;
     use scheme::interpreter::Interpreter;
 
     #[test]

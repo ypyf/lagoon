@@ -1,7 +1,7 @@
-use scheme::types::LispError::*;
-use scheme::types::LispResult;
-use scheme::types::Sexp;
-use scheme::types::Sexp::{Char, True, False};
+use scheme::data::LispResult;
+use scheme::data::error::LispError::*;
+use scheme::data::value::Sexp;
+use scheme::data::value::Sexp::*;
 
 // 标准中只要求对两个操作数进行比较
 // 大写字符是有序的

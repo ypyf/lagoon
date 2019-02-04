@@ -1,7 +1,7 @@
-use scheme::types::Sexp;
-use scheme::types::LispResult;
-use scheme::types::LispError::{ArityMismatch, TypeMismatch, IndexOutOfRange};
-use scheme::types::Sexp::{Number, Char, Str, Void};
+use scheme::data::LispResult;
+use scheme::data::value::Sexp;
+use scheme::data::error::LispError::*;
+use scheme::data::value::Sexp::*;
 
 use std::rc::Rc;
 use std::cell::RefCell;
