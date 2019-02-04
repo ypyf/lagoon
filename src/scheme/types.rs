@@ -123,7 +123,7 @@ impl Context {
                 let expr = List(Box::new(exprs.to_vec()));
                 self.apply_transformer(&keyword, transformer, &expr)
             }
-            Keyword { name: _, func } => self.apply_keyword(func, tail),
+            Keyword { func, .. } => self.apply_keyword(func, tail),
             _ => {
                 let (last, init) = tail.split_last().unwrap();
                 if *last != Nil {
@@ -251,10 +251,10 @@ impl Context {
         use self::LispError::*;
 
         match proc {
-            Function { name: _, func } => {
+            Function { func, .. } => {
                 func(exprs)
             }
-            Procedure { name: _, func } => {
+            Procedure { func, .. } => {
                 func(self, exprs)
             }
             Closure { name, params, vararg, body, env } => {
