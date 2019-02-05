@@ -182,7 +182,7 @@ pub fn define_syntax(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
                     Err(BadSyntax("define-syntax".to_owned(), Some("only a `syntax-rules' form is allowed".to_owned())))
                 } else {
                     let transformer = syntax_rules(ctx, datum)?;
-                    ctx.insert(keyword, &Syntax { keyword: keyword.clone(), transformer });
+                    ctx.insert(keyword, &DefineSyntax { keyword: keyword.clone(), transformer });
                     Ok(Void)
                 }
             } else {

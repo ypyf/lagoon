@@ -79,8 +79,8 @@ impl Context {
                 let val = val.borrow().clone();
                 match &val {
                     // 语法关键字如果不位于列表头部是无效的
-                    Keyword { name, .. } => self.syntax_error(&name),
-                    Syntax { keyword, .. } => self.syntax_error(&keyword),
+                    Syntax { name, .. } => self.syntax_error(&name),
+                    DefineSyntax { keyword, .. } => self.syntax_error(&keyword),
                     _ => Ok(val)
                 }
             } else {
@@ -111,11 +111,11 @@ impl Context {
         let (head, tail) = exprs.split_first().unwrap();
         let proc = self.eval_head(head)?;
         match proc {
-            Syntax { keyword, transformer } => {
+            DefineSyntax { keyword, transformer } => {
                 let expr = List(Box::new(exprs.to_vec()));
                 self.apply_transformer(&keyword, transformer, &expr)
             }
-            Keyword { func, .. } => self.apply_keyword(func, tail),
+            Syntax { func, .. } => self.apply_keyword(func, tail),
             _ => {
                 let (last, init) = tail.split_last().unwrap();
                 if *last != Nil {

@@ -25,7 +25,7 @@ impl Interpreter {
     }
 
     pub fn bind_synatx(&mut self, name: &str, func: HostFunction2) {
-        let form = Sexp::Keyword { name: name.to_owned(), func };
+        let form = Sexp::Syntax { name: name.to_owned(), func };
         self.ctx.insert(name, &form);
     }
 

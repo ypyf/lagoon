@@ -33,7 +33,7 @@ pub enum Sexp {
     Number(i64),
     Symbol(String),
     List(Box<Vec<Sexp>>),
-    Keyword {
+    Syntax {
         name: String,
         func: HostFunction2,
     },
@@ -53,7 +53,7 @@ pub enum Sexp {
         body: Rc<Vec<Sexp>>,
         env: Context,
     },
-    Syntax {
+    DefineSyntax {
         keyword: String,
         transformer: Transformer,
     },
@@ -114,6 +114,15 @@ impl Sexp {
         }
     }
 
+    pub fn is_string(&self) -> bool {
+        use self::Sexp::*;
+        if let Str(_, _) = self {
+            true
+        } else {
+            false
+        }
+    }
+
     // list?
     pub fn is_list(&self) -> bool {
         use self::Sexp::*;
@@ -126,20 +135,12 @@ impl Sexp {
         }
     }
 
-    pub fn is_string(&self) -> bool {
-        use self::Sexp::*;
-        if let Str(_, _) = self {
-            true
-        } else {
-            false
-        }
-    }
-
     // 计算元素个数（不包括尾部的Nil, 不递归计算）
     pub fn list_count(&self) -> usize {
         use self::Sexp::*;
         if let List(xs) = self {
-            if self.is_list() {
+            let (last, _) = xs.split_last().unwrap();
+            if *last == Nil {
                 xs.len() - 1
             } else {
                 xs.len()
@@ -254,7 +255,7 @@ impl<'a> fmt::Display for Sexp {
             Symbol(n) => write!(f, "{}", n),
             Char(n) => write!(f, "#\\{}", char_to_name(*n)),
             Str(n, _) => write!(f, "{:?}", n.borrow()), // 字符串输出时显示双引号
-            Keyword { name, .. } => write!(f, "#<keyword {}>", name),
+            Syntax { name, .. } => write!(f, "#<keyword {}>", name),
             Procedure { name, .. } => write!(f, "#<procedure {}>", name),
             Function { name, .. } => write!(f, "#<procedure {}>", name),
             Closure { name, .. } => if name.is_empty() {
@@ -262,7 +263,7 @@ impl<'a> fmt::Display for Sexp {
             } else {
                 write!(f, "#<procedure {}>", name)
             }
-            Syntax { keyword, .. } => write!(f, "#<syntax {}>", keyword),
+            DefineSyntax { keyword, .. } => write!(f, "#<syntax {}>", keyword),
             List(xs) => {
                 let mut string = String::new();
                 string.push('(');
