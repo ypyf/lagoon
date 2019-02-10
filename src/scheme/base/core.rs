@@ -4,9 +4,9 @@ use scheme::LispResult;
 use scheme::value::Sexp;
 use scheme::value::Sexp::*;
 use scheme::error::LispError::*;
-use scheme::context::Context;
+use scheme::machine::LispMachine;
 
-pub fn quote(_context: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
+pub fn quote(_vm: &mut LispMachine, exprs: &[Sexp]) -> LispResult<Sexp> {
     let arity = exprs.len();
     if arity != 1 {
         return Err(BadSyntax("quote".to_string()));
@@ -16,7 +16,7 @@ pub fn quote(_context: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
 
 // FIXME (define a (define a 1)) => define: not allowed in an expression context
 // definition in expression context, where definitions are not allowed, in from (define a 1)
-pub fn define(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
+pub fn define(vm: &mut LispMachine, exprs: &[Sexp]) -> LispResult<Sexp> {
     let arity = exprs.len();
     if arity == 0 {
         syntax_error!("define", "bad syntax");
@@ -28,13 +28,13 @@ pub fn define(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
 
     match &exprs[0] {
         Symbol(sym) => {
-            let val = ctx.eval(&exprs[1])?;
+            let val = vm.eval(&exprs[1])?;
             match val {
                 Closure { name: _, params, vararg, body, env } => {
                     let closure = Closure { name: sym.clone(), params, vararg, body, env };
-                    ctx.insert(sym, &closure);
+                    vm.env.insert(sym, &closure);
                 }
-                _ => ctx.insert(sym, &val)
+                _ => vm.env.insert(sym, &val)
             }
         }
         List(xs) => match xs.last().unwrap() {
@@ -47,7 +47,7 @@ pub fn define(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
                 } else {
                     syntax_error!("define", "bad syntax");
                 };
-                ctx.eval(&expr)?;
+                vm.eval(&expr)?;
             }
             // (define (name x y . v) (+ x y)) => (define name (lambda (x y . v) (+ x y)))
             Symbol(_) => {
@@ -58,7 +58,7 @@ pub fn define(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
                 } else {
                     syntax_error!("define", "bad syntax");
                 };
-                ctx.eval(&expr)?;
+                vm.eval(&expr)?;
             }
             _ => syntax_error!("define", "bad syntax"),
         }
@@ -67,7 +67,7 @@ pub fn define(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
     Ok(Void)
 }
 
-pub fn assign(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
+pub fn assign(vm: &mut LispMachine, exprs: &[Sexp]) -> LispResult<Sexp> {
     let arity = exprs.len();
     if arity != 2 {
         syntax_error!("set!", format!("has {} parts after keyword", arity));
@@ -75,8 +75,8 @@ pub fn assign(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
 
     match &exprs[0] {
         Symbol(sym) => {
-            let val = ctx.eval(&exprs[1])?;
-            if ctx.assign(sym, &val) {
+            let val = vm.eval(&exprs[1])?;
+            if vm.env.assign(sym, &val) {
                 Ok(Void)
             } else {
                 return Err(AssignError("cannot set undefined".to_owned()));
@@ -87,7 +87,7 @@ pub fn assign(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
 }
 
 // FIXME body不能为空
-pub fn lambda(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
+pub fn lambda(vm: &mut LispMachine, exprs: &[Sexp]) -> LispResult<Sexp> {
     let arity = exprs.len();
     if arity == 0 {
         syntax_error!("lambda", "bad syntax");
@@ -102,7 +102,7 @@ pub fn lambda(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
             params: vec![],
             vararg: None,
             body: Rc::new(body.to_vec()),
-            env: ctx.clone(),
+            env: vm.env.clone(),
         }),
         List(xs) => {
             let (last, init) = xs.split_last().unwrap();
@@ -124,7 +124,7 @@ pub fn lambda(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
                 params,
                 vararg,
                 body: Rc::new(body.to_vec()),
-                env: ctx.clone(),
+                env: vm.env.clone(),
             })
         }
         Symbol(ident) => {
@@ -133,7 +133,7 @@ pub fn lambda(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
                 params: vec![],
                 vararg: Some(ident.clone()),
                 body: Rc::new(body.to_vec()),
-                env: ctx.clone(),
+                env: vm.env.clone(),
             })
         }
         _ => syntax_error!("lambda", "not an identifier"),
@@ -141,7 +141,7 @@ pub fn lambda(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
 }
 
 // FIXME tail call optimization
-pub fn if_exp(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
+pub fn if_exp(vm: &mut LispMachine, exprs: &[Sexp]) -> LispResult<Sexp> {
     let arity = exprs.len();
     if arity < 2 || arity > 3 {
         syntax_error!("if", "bad syntax");
@@ -150,8 +150,8 @@ pub fn if_exp(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
     if arity == 2 {
         let pred = &exprs[0];
         let conseq = &exprs[1];
-        if ctx.eval(pred)?.is_true() {
-            ctx.eval(conseq)
+        if vm.eval(pred)?.is_true() {
+            vm.eval(conseq)
         } else {
             Ok(Void)
         }
@@ -159,10 +159,10 @@ pub fn if_exp(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
         let pred = &exprs[0];
         let conseq = &exprs[1];
         let alt = &exprs[2];
-        if ctx.eval(pred)?.is_true() {
-            ctx.eval(conseq)
+        if vm.eval(pred)?.is_true() {
+            vm.eval(conseq)
         } else {
-            ctx.eval(alt)
+            vm.eval(alt)
         }
     }
 }

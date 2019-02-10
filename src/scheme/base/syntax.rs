@@ -1,12 +1,13 @@
-use scheme::context::Context;
+use scheme::env::Environment;
 use scheme::{ELLIPSIS, UNDERSCORE, LispResult};
 use scheme::error::LispError::BadSyntax;
 use scheme::value::Sexp::*;
 use scheme::value::{Sexp, SyntaxRule, Transformer};
+use scheme::machine::LispMachine;
 
 use std::collections::{HashSet, VecDeque};
 
-pub fn define_syntax(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
+pub fn define_syntax(vm: &mut LispMachine, exprs: &[Sexp]) -> LispResult<Sexp> {
     let arity = exprs.len();
     if arity != 2 {
         syntax_error!("define-syntax", "bad syntax");
@@ -18,8 +19,8 @@ pub fn define_syntax(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Sexp> {
                 if datum.is_empty() {
                     syntax_error!("define-syntax", "only a `syntax-rules' form is allowed")
                 } else {
-                    let transformer = syntax_rules(ctx, datum)?;
-                    ctx.insert(keyword, &DefineSyntax { keyword: keyword.clone(), transformer });
+                    let transformer = syntax_rules(vm, datum)?;
+                    vm.env.insert(keyword, &DefineSyntax { keyword: keyword.clone(), transformer });
                     Ok(Void)
                 }
             } else {
@@ -45,7 +46,7 @@ fn check_transformer(form: &Sexp) -> Option<&[Sexp]> {
     None
 }
 
-fn syntax_rules(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Transformer> {
+fn syntax_rules(vm: &mut LispMachine, exprs: &[Sexp]) -> LispResult<Transformer> {
     let arity = exprs.len();
 
     let first = &exprs[0];
@@ -84,7 +85,7 @@ fn syntax_rules(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Transformer> {
                 let expr = Transformer {
                     id: None,
                     literals: vec![],
-                    rules: parse_syntax_rules(ctx, &exprs[2..])?,
+                    rules: parse_syntax_rules(&vm.env, &exprs[2..])?,
                 };
                 Ok(expr)
             }
@@ -92,7 +93,7 @@ fn syntax_rules(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Transformer> {
                 let rules = if arity == 2 {
                     vec![]
                 } else {
-                    parse_syntax_rules(ctx, &exprs[2..])?
+                    parse_syntax_rules(&vm.env, &exprs[2..])?
                 };
                 if first.is_list() {
                     let mut id_list = vec![];
@@ -119,7 +120,7 @@ fn syntax_rules(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Transformer> {
             let expr = Transformer {
                 id: None,
                 literals: vec![],
-                rules: parse_syntax_rules(ctx, &exprs[1..])?,
+                rules: parse_syntax_rules(&vm.env, &exprs[1..])?,
             };
             Ok(expr)
         }
@@ -136,7 +137,7 @@ fn syntax_rules(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Transformer> {
                     syntax_error!("syntax-rules", "bad syntax");
                 }
             }
-            Ok(Transformer { id: None, literals: id_list, rules: parse_syntax_rules(ctx, &exprs[1..])? })
+            Ok(Transformer { id: None, literals: id_list, rules: parse_syntax_rules(&vm.env, &exprs[1..])? })
         } else {
             syntax_error!("syntax-rules", "bad syntax");
         }
@@ -145,7 +146,7 @@ fn syntax_rules(ctx: &mut Context, exprs: &[Sexp]) -> LispResult<Transformer> {
 }
 
 // Parse (pattern template) clause
-fn parse_syntax_rules(ctx: &Context, exprs: &[Sexp]) -> LispResult<Vec<SyntaxRule>> {
+fn parse_syntax_rules(ctx: &Environment, exprs: &[Sexp]) -> LispResult<Vec<SyntaxRule>> {
     let mut rules = vec![];
     for expr in exprs {
         let (pattern, template) = check_syntax_rules_clause(ctx, expr)?;
@@ -155,7 +156,7 @@ fn parse_syntax_rules(ctx: &Context, exprs: &[Sexp]) -> LispResult<Vec<SyntaxRul
 }
 
 // Check (pattern template) clause
-fn check_syntax_rules_clause(ctx: &Context, clause: &Sexp) -> LispResult<(Sexp, Sexp)> {
+fn check_syntax_rules_clause(ctx: &Environment, clause: &Sexp) -> LispResult<(Sexp, Sexp)> {
     let error = format!("invalid syntax-rules clause {}", clause);
     if let List(xs) = clause {
         if !clause.is_list() || clause.list_count() != 2 {
@@ -170,7 +171,7 @@ fn check_syntax_rules_clause(ctx: &Context, clause: &Sexp) -> LispResult<(Sexp, 
     }
 }
 
-fn compile_pattern(_ctx: &Context, clause: &Sexp, pattern: &Sexp) -> LispResult<Sexp> {
+fn compile_pattern(_ctx: &Environment, clause: &Sexp, pattern: &Sexp) -> LispResult<Sexp> {
     let error = format!("invalid syntax-rules clause {}", clause);
     let mut compiled_pattern = if let List(xs) = pattern {
         if xs.first().unwrap().is_symbol() {

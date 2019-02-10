@@ -1,6 +1,6 @@
-use scheme::context::Context;
 use scheme::reader::Reader;
 use scheme::LispResult;
+use scheme::machine::LispMachine;
 use scheme::value::Sexp;
 use scheme::value::Sexp::*;
 use scheme::error::LispError::*;
@@ -9,7 +9,7 @@ use std::process::exit;
 use std::fs::File;
 use std::io::BufReader;
 
-pub fn exit_process(_context: &mut Context, args: &[Sexp]) -> LispResult<Sexp> {
+pub fn exit_process(_vm: &mut LispMachine, args: &[Sexp]) -> LispResult<Sexp> {
     for arg in args {
         match arg {
             Number(n) => exit(n.clone() as i32),
@@ -19,7 +19,7 @@ pub fn exit_process(_context: &mut Context, args: &[Sexp]) -> LispResult<Sexp> {
     exit(0)
 }
 
-pub fn load(ctx: &mut Context, args: &[Sexp]) -> LispResult<Sexp> {
+pub fn load(vm: &mut LispMachine, args: &[Sexp]) -> LispResult<Sexp> {
     let arity = args.len();
     // TODO 可以接受environment-specifier作为第二个参数
     if args.len() != 1 {
@@ -39,7 +39,7 @@ pub fn load(ctx: &mut Context, args: &[Sexp]) -> LispResult<Sexp> {
         for item in reader {
             match item {
                 Ok(expr) => {
-                    res = ctx.eval(&expr);
+                    res = vm.eval(&expr);
                     if res.is_err() {
                         return res;
                     }

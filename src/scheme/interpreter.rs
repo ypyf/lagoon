@@ -1,9 +1,10 @@
 use scheme::base::*;
 use scheme::base::numeric::Operator::*;
 use scheme::reader::Reader;
-use scheme::context::Context;
+use scheme::env::Environment;
 use scheme::value::{Sexp, HostFunction1, HostFunction2};
 use scheme::LispResult;
+use scheme::machine::LispMachine;
 use scheme::error::LispError;
 
 use std::fs::File;
@@ -12,13 +13,13 @@ use std::io::BufReader;
 use std::io::Cursor;
 
 pub struct Interpreter {
-    ctx: Context,
+    env: Environment,
 }
 
 impl Interpreter {
     pub fn new() -> Self {
         let mut interp = Interpreter {
-            ctx: Context::new(None),
+            env: Environment::new(None),
         };
         interp.init_globals();
         interp
@@ -26,17 +27,17 @@ impl Interpreter {
 
     pub fn bind_synatx(&mut self, name: &str, func: HostFunction2) {
         let form = Sexp::Syntax { name: name.to_owned(), func };
-        self.ctx.insert(name, &form);
+        self.env.insert(name, &form);
     }
 
     pub fn bind_proc(&mut self, name: &str, func: HostFunction2) {
         let proc = Sexp::Procedure { name: name.to_owned(), func };
-        self.ctx.insert(name, &proc);
+        self.env.insert(name, &proc);
     }
 
     pub fn bind_func(&mut self, name: &str, func: HostFunction1) {
         let proc = Sexp::Function { name: name.to_owned(), func };
-        self.ctx.insert(name, &proc);
+        self.env.insert(name, &proc);
     }
 
     fn init_globals(&mut self) {
@@ -76,7 +77,7 @@ impl Interpreter {
         self.bind_func("char?", predicate::is_char);
         self.bind_func("symbol?", predicate::is_symbol);
         self.bind_func("procedure?", predicate::is_procedure);
-        self.bind_proc("apply", control::apply);
+        self.bind_proc("apply", control::apply_proc);
         self.bind_proc("load", system::load);
         self.bind_proc("exit", system::exit_process);
         self.bind_synatx("define", core::define);
@@ -93,10 +94,11 @@ impl Interpreter {
     // 运行解释器
     pub fn run(&mut self, reader: Reader) -> LispResult<Sexp> {
         let mut res = Ok(Sexp::Void);
+        let mut vm = LispMachine::new(self.env.clone());
         for item in reader {
             match item {
                 Ok(datum) => {
-                    res = self.ctx.eval(&datum);
+                    res = vm.eval(&datum);
                     if res.is_err() {
                         return res;
                     }
@@ -109,17 +111,18 @@ impl Interpreter {
 
     pub fn run_repl(&mut self) {
         let mut res_no = 0;
+        let mut vm = LispMachine::new(self.env.clone());
         for item in Reader::new() {
             match item {
                 Ok(datum) => {
-                    match self.ctx.eval(&datum) {
+                    match vm.eval(&datum) {
                         Ok(ref val) => match val {
                             Sexp::Void => (),
                             _ => {
                                 res_no += 1;
                                 let last_res = format!("${}", res_no);
-                                if self.ctx.lookup(&last_res).is_none() {
-                                    self.ctx.insert(&last_res, val);
+                                if self.env.lookup(&last_res).is_none() {
+                                    self.env.insert(&last_res, val);
                                 }
                                 println!("{} = {}", last_res, val);
                             }

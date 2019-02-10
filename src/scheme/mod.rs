@@ -10,7 +10,8 @@ pub mod error;
 mod data;
 mod base;
 mod reader;
-mod context;
+mod env;
+mod machine;
 
 use scheme::error::LispError;
 

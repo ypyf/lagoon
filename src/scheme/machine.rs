@@ -1,73 +1,41 @@
-use scheme::LispResult;
-use scheme::value::{Sexp, HostFunction2, Transformer};
-use scheme::error::LispError::*;
-use scheme::{UNDERSCORE, ELLIPSIS};
-
-use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::cell::RefCell;
 use std::rc::Rc;
 
-type Env = BTreeMap<String, Rc<RefCell<Sexp>>>;
+use scheme::LispResult;
+use scheme::value::Sexp;
+use scheme::value::Sexp::*;
+use scheme::env::Environment;
+use scheme::error::LispError::*;
+use scheme::value::HostFunction2;
+use scheme::value::Transformer;
+use std::collections::HashMap;
+use std::collections::vec_deque::VecDeque;
+use scheme::ELLIPSIS;
+use scheme::UNDERSCORE;
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Context {
-    env: Rc<RefCell<Env>>,
-    up: Option<Rc<Context>>,
+
+pub struct LispMachine {
+    pub exp: Option<Sexp>,
+    pub env: Environment,
+    pub val: Option<Sexp>,
+    pub argl: Vec<Sexp>,
+    pub unev: Option<Sexp>,
 }
 
-impl Context {
-    pub fn new(up: Option<Rc<Context>>) -> Self {
-        Context {
-            env: Rc::new(RefCell::new(Env::new())),
-            up,
-        }
-    }
-
-    pub fn is_global(&self) -> bool {
-        self.up.is_none()
-    }
-
-    pub fn lookup(&self, name: &str) -> Option<Rc<RefCell<Sexp>>> {
-        if let Some(val) = self.env.borrow().get(name) {
-            return Some(val.clone());
-        }
-
-        let mut current = self.up.clone();
-        while let Some(ctx) = current {
-            if let Some(val) = ctx.env.borrow().get(name) {
-                return Some(val.clone());
-            }
-            current = ctx.up.clone();
-        }
-        None
-    }
-
-    pub fn insert(&mut self, name: &str, expr: &Sexp) {
-        let val = Rc::new(RefCell::new(expr.clone()));
-        self.env.borrow_mut().insert(name.to_owned(), val);
-    }
-
-    pub fn insert_many(&mut self, keys: &[String], values: &[Sexp]) {
-        for (k, v) in keys.iter().zip(values) {
-            let val = Rc::new(RefCell::new(v.clone()));
-            self.env.borrow_mut().insert(k.to_string(), val);
-        }
-    }
-
-    pub fn assign(&mut self, name: &str, val: &Sexp) -> bool {
-        if let Some(var) = self.lookup(name) {
-            *var.borrow_mut() = val.clone();
-            true
-        } else {
-            false
+impl LispMachine {
+    pub fn new(env: Environment) -> Self {
+        LispMachine {
+            exp: None,
+            env,
+            val: None,
+            argl: vec![],
+            unev: None,
         }
     }
 
     pub fn eval(&mut self, expr: &Sexp) -> LispResult<Sexp> {
-        use self::Sexp::*;
         match expr {
             Nil => return Err(ApplyError("missing procedure expression".to_owned())),
-            Symbol(name) => if let Some(val) = self.lookup(&name) {
+            Symbol(name) => if let Some(val) = self.env.lookup(&name) {
                 let val = val.borrow().clone();
                 match &val {
                     // 语法关键字如果不位于列表头部是无效的
@@ -87,7 +55,7 @@ impl Context {
     fn eval_head(&mut self, expr: &Sexp) -> LispResult<Sexp> {
         use self::Sexp::*;
         match expr {
-            Symbol(name) => if let Some(val) = self.lookup(&name) {
+            Symbol(name) => if let Some(val) = self.env.lookup(&name) {
                 Ok(val.borrow().clone())
             } else {
                 Err(Undefined(name.to_string()))
@@ -138,7 +106,7 @@ impl Context {
                 let args = exprs;
                 let nparams = params.len();
                 let nargs = args.len();
-                let mut ctx = Context::new(Some(Rc::new(env.clone())));
+                let mut ctx = Environment::new(Some(Rc::new(env.clone())));
                 match vararg {
                     Some(ref name) => {
                         if nargs < nparams {
@@ -163,12 +131,16 @@ impl Context {
                         ctx.insert_many(params, &args);
                     }
                 }
+                let old_ctx = self.env.clone();
+                self.env = ctx;
                 // FIXME tail call optimization
                 let (last, init) = body.split_last().unwrap();
                 for expr in init {
-                    ctx.eval(expr)?;
+                    self.eval(expr)?;
                 }
-                ctx.eval(last)
+                let res = self.eval(last);
+                self.env = old_ctx;
+                res
             }
             _ => Err(ApplyError(format!("not a procedure: {}", proc))),
         }
@@ -178,7 +150,7 @@ impl Context {
         let mut rules = transformer.rules.clone();
         for rule in &mut rules {
             println!("{}", rule.pattern);
-            if let Some(bindings) = Context::match_syntax_rule(&rule.pattern, form) {
+            if let Some(bindings) = Self::match_syntax_rule(&rule.pattern, form) {
                 // dbg!(&bindings);
                 let expr = self.render_template(&bindings, &rule.template);
                 println!("{}", expr);
@@ -186,6 +158,17 @@ impl Context {
             }
         }
         syntax_error!(keyword, "bad syntax")
+    }
+
+    fn apply_keyword(&mut self, func: HostFunction2, exprs: &[Sexp]) -> LispResult<Sexp> {
+        use self::Sexp::*;
+        let (last, init) = exprs.split_last().unwrap();
+        let args = if *last == Nil {
+            init
+        } else {
+            exprs
+        };
+        func(self, args)
     }
 
     fn render_template(&mut self, bindings: &HashMap<String, Sexp>, template: &Sexp) -> Sexp {
@@ -270,15 +253,5 @@ impl Context {
             }
         }
     }
-
-    fn apply_keyword(&mut self, func: HostFunction2, exprs: &[Sexp]) -> LispResult<Sexp> {
-        use self::Sexp::*;
-        let (last, init) = exprs.split_last().unwrap();
-        let args = if *last == Nil {
-            init
-        } else {
-            exprs
-        };
-        func(self, args)
-    }
 }
+

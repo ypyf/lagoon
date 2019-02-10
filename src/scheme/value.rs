@@ -1,13 +1,14 @@
 use super::data::iterator::{ListIterator, ListIntoIterator};
 use super::LispResult;
-use scheme::context::Context;
+use scheme::machine::LispMachine;
+use scheme::env::Environment;
 
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::fmt;
 
 pub type HostFunction1 = fn(&[Sexp]) -> LispResult<Sexp>;
-pub type HostFunction2 = fn(&mut Context, &[Sexp]) -> LispResult<Sexp>;
+pub type HostFunction2 = fn(&mut LispMachine, &[Sexp]) -> LispResult<Sexp>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SyntaxRule {
@@ -51,7 +52,7 @@ pub enum Sexp {
         params: Vec<String>,
         vararg: Option<String>,
         body: Rc<Vec<Sexp>>,
-        env: Context,
+        env: Environment,
     },
     DefineSyntax {
         keyword: String,

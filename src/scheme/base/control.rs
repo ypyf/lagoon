@@ -1,9 +1,9 @@
-use scheme::context::Context;
 use scheme::LispResult;
 use scheme::value::Sexp;
 use scheme::error::LispError::*;
+use scheme::machine::LispMachine;
 
-pub fn apply(ctx: &mut Context, args: &[Sexp]) -> LispResult<Sexp> {
+pub fn apply_proc(vm: &mut LispMachine, args: &[Sexp]) -> LispResult<Sexp> {
     use self::Sexp::*;
     let arity = args.len();
     if arity < 2 {
@@ -30,5 +30,5 @@ pub fn apply(ctx: &mut Context, args: &[Sexp]) -> LispResult<Sexp> {
     } else {
         return Err(TypeMismatch("list".to_owned(), format!("{}", last)));
     };
-    ctx.apply(&args[0], &arg_list)
+    vm.apply(&args[0], &arg_list)
 }
