@@ -8,9 +8,9 @@ pub mod scheme;
 #[cfg(test)]
 mod tests {
     use test::Bencher;
-    use scheme::data::value::Sexp::*;
-    use scheme::data::error::LispError::*;
     use scheme::interpreter::Interpreter;
+    use scheme::value::Sexp::*;
+    use scheme::error::LispError::*;
 
     #[test]
     fn it_works() {

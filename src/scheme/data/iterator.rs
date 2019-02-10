@@ -1,4 +1,4 @@
-use scheme::data::value::Sexp;
+use scheme::value::Sexp;
 
 #[derive(Debug, Clone)]
 pub struct ListIntoIterator {

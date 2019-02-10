@@ -1,7 +1,7 @@
 use scheme::context::Context;
-use scheme::data::LispResult;
-use scheme::data::value::Sexp;
-use scheme::data::error::LispError::*;
+use scheme::LispResult;
+use scheme::value::Sexp;
+use scheme::error::LispError::*;
 
 pub fn apply(ctx: &mut Context, args: &[Sexp]) -> LispResult<Sexp> {
     use self::Sexp::*;

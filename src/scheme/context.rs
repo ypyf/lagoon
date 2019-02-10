@@ -1,7 +1,7 @@
-use scheme::data::LispResult;
-use scheme::data::value::{Sexp, HostFunction2, Transformer};
-use scheme::data::error::LispError::*;
-use scheme::data::{UNDERSCORE, ELLIPSIS};
+use scheme::LispResult;
+use scheme::value::{Sexp, HostFunction2, Transformer};
+use scheme::error::LispError::*;
+use scheme::{UNDERSCORE, ELLIPSIS};
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::cell::RefCell;
@@ -63,14 +63,6 @@ impl Context {
         }
     }
 
-    pub fn syntax_error<T>(&self, form: &str) -> LispResult<T> {
-        Err(BadSyntax(form.to_string(), None))
-    }
-
-    pub fn syntax_error1<T>(&self, form: &str, reason: &str) -> LispResult<T> {
-        Err(BadSyntax(form.to_string(), Some(reason.to_string())))
-    }
-
     pub fn eval(&mut self, expr: &Sexp) -> LispResult<Sexp> {
         use self::Sexp::*;
         match expr {
@@ -79,8 +71,8 @@ impl Context {
                 let val = val.borrow().clone();
                 match &val {
                     // 语法关键字如果不位于列表头部是无效的
-                    Syntax { name, .. } => self.syntax_error(&name),
-                    DefineSyntax { keyword, .. } => self.syntax_error(&keyword),
+                    Syntax { name, .. } => syntax_error!(name, "bad syntax"),
+                    DefineSyntax { keyword, .. } => syntax_error!(keyword, "bad syntax"),
                     _ => Ok(val)
                 }
             } else {
@@ -119,7 +111,7 @@ impl Context {
             _ => {
                 let (last, init) = tail.split_last().unwrap();
                 if *last != Nil {
-                    return self.syntax_error("apply");
+                    syntax_error!("apply", "bad syntax")
                 }
                 let args: Result<Vec<_>, _> = init.iter().map(|e| self.eval(e)).collect();
                 if args.is_err() {
@@ -193,7 +185,7 @@ impl Context {
                 return self.eval(&expr);
             }
         }
-        self.syntax_error(keyword)
+        syntax_error!(keyword, "bad syntax")
     }
 
     fn render_template(&mut self, bindings: &HashMap<String, Sexp>, template: &Sexp) -> Sexp {

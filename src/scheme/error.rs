@@ -8,7 +8,7 @@ pub enum LispError {
     DivisionByZero(String),
     ReadError(String),
     AssignError(String),
-    BadSyntax(String, Option<String>),
+    BadSyntax(String),
     IndexOutOfRange(String, usize, usize, usize),
     Undefined(String),
     SystemError(String),
@@ -28,7 +28,7 @@ impl<'a> PartialEq for LispError {
             (AssignError(_), AssignError(_)) => true,
             (DivisionByZero(_), DivisionByZero(_)) => true,
             (Undefined(_), Undefined(_)) => true,
-            (BadSyntax(_, _), BadSyntax(_, _)) => true,
+            (BadSyntax(_), BadSyntax(_)) => true,
             (SystemError(_), SystemError(_)) => true,
             (ApplyError(_), ApplyError(_)) => true,
             (ArityMismatch(_, _, _), ArityMismatch(_, _, _)) => true,
@@ -46,22 +46,15 @@ impl fmt::Display for LispError {
         match self {
             EndOfInput => write!(f, ""),
             Interrupted => write!(f, "User interrupt"),
-            DivisionByZero(sym) => write!(f, "Error in {}: division by zero", sym),
+            DivisionByZero(sym) => write!(f, "{}: division by zero", sym),
             ReadError(err) => write!(f, "read: {}", err),
             AssignError(err) => write!(f, "set!: {}", err),
-            BadSyntax(sym, err) => {
-                let msg = if let Some(reason) = err {
-                    reason.clone()
-                } else {
-                    "bad syntax".to_owned()
-                };
-                write!(f, "{}: {}", sym, msg)
-            }
+            BadSyntax(err) => write!(f, "{}", err),
             IndexOutOfRange(sym, index, lower, upper) =>
                 write!(f, "{}: index is out of range\n index: {}\n valid range: [{}, {}]", sym, index, lower, upper),
-            Undefined(sym) => write!(f, "Error: variable {} is not bound", sym),
-            SystemError(err) => write!(f, "Error: {}", err),
-            ApplyError(err) => write!(f, "application: {}", err),
+            Undefined(sym) => write!(f, "variable {} is not bound", sym),
+            SystemError(err) => write!(f, "{}", err),
+            ApplyError(err) => write!(f, "{}", err),
             ArityMismatch(sym, expected, given) => write!(
                 f,
                 "{}: arity mismatch;\n the expected number of arguments does not match the given number\n expected: at least {}\n given: {}",
@@ -81,7 +74,7 @@ impl Error for LispError {
             DivisionByZero(_) => "division by zero",
             ReadError(_) => "read error",
             AssignError(_) => "assign error",
-            BadSyntax(_, _) => "bad syntax",
+            BadSyntax(_) => "bad syntax",
             Undefined(_) => "undefined identifier",
             IndexOutOfRange(_, _, _, _) => "index out of range",
             SystemError(_) => "system error",

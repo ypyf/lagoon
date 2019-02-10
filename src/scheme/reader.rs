@@ -1,8 +1,8 @@
 extern crate regex;
 
-use scheme::data::LispResult;
-use scheme::data::error::LispError;
-use scheme::data::value::Sexp;
+use scheme::LispResult;
+use scheme::error::LispError;
+use scheme::value::Sexp;
 
 use std::error::Error;
 use std::io::{self, Stdin, BufRead, Write};

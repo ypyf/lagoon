@@ -2,9 +2,9 @@ use scheme::base::*;
 use scheme::base::numeric::Operator::*;
 use scheme::reader::Reader;
 use scheme::context::Context;
-use scheme::data::value::{Sexp, HostFunction1, HostFunction2};
-use scheme::data::LispResult;
-use scheme::data::error::LispError;
+use scheme::value::{Sexp, HostFunction1, HostFunction2};
+use scheme::LispResult;
+use scheme::error::LispError;
 
 use std::fs::File;
 use std::process::exit;
@@ -79,11 +79,11 @@ impl Interpreter {
         self.bind_proc("apply", control::apply);
         self.bind_proc("load", system::load);
         self.bind_proc("exit", system::exit_process);
-        self.bind_synatx("define", syntax::define);
-        self.bind_synatx("set!", syntax::assign);
-        self.bind_synatx("quote", syntax::quote);
-        self.bind_synatx("lambda", syntax::lambda);
-        self.bind_synatx("if", syntax::if_exp);
+        self.bind_synatx("define", core::define);
+        self.bind_synatx("set!", core::assign);
+        self.bind_synatx("quote", core::quote);
+        self.bind_synatx("lambda", core::lambda);
+        self.bind_synatx("if", core::if_exp);
         self.bind_synatx("define-syntax", syntax::define_syntax);
 
         // 加载库文件
@@ -124,11 +124,11 @@ impl Interpreter {
                                 println!("{} = {}", last_res, val);
                             }
                         },
-                        Err(err) => eprintln!("{}", err),
+                        Err(err) => eprintln!("Error: {}", err),
                     }
                 }
                 Err(LispError::EndOfInput) => break,
-                Err(err) => eprintln!("{}", err),
+                Err(err) => eprintln!("Error: {}", err),
             }
         }
     }
@@ -145,7 +145,7 @@ impl Interpreter {
         let mut input = BufReader::new(file);
         reader.set_input(&mut input);
         match self.run(reader) {
-            Err(err) => eprintln!("{}", err),
+            Err(err) => eprintln!("Error: {}", err),
             _ => return,
         }
     }

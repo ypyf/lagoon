@@ -1,3 +1,4 @@
+pub mod core;
 pub mod syntax;
 pub mod numeric;
 pub mod character;

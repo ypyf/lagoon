@@ -1,7 +1,7 @@
-use scheme::data::LispResult;
-use scheme::data::error::LispError::*;
-use scheme::data::value::Sexp;
-use scheme::data::value::Sexp::*;
+use scheme::LispResult;
+use scheme::error::LispError::*;
+use scheme::value::Sexp;
+use scheme::value::Sexp::*;
 
 // 标准中只要求对两个操作数进行比较
 // 大写字符是有序的

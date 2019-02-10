@@ -1,9 +1,9 @@
 use scheme::context::Context;
 use scheme::reader::Reader;
-use scheme::data::LispResult;
-use scheme::data::value::Sexp;
-use scheme::data::value::Sexp::*;
-use scheme::data::error::LispError::*;
+use scheme::LispResult;
+use scheme::value::Sexp;
+use scheme::value::Sexp::*;
+use scheme::error::LispError::*;
 
 use std::process::exit;
 use std::fs::File;
